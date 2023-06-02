@@ -1,10 +1,6 @@
-import sys
-
-import gym
-from main_utils import read_flag_x_times
-import torch
+from TREX_env._utils.sml_utils import read_flag_x_times
 from epymarl.src.envs.multiagentenv import MultiAgentEnv #ToDo: change this to PettingZoo
-from gym import error, spaces
+from gym import spaces
 import numpy as np
 import TREX_Core._utils.runner
 import os
@@ -211,7 +207,6 @@ class TrexEnv(MultiAgentEnv):
         This method returns the size of each individual agents observation space, assuming homogenous observation spaces!
         FixMe: this is an epymarl leftover and will need to be adjusted at some point
         """
-        from gym.spaces import flatdim
         agent_obs_spaces = {}
         for i, agent in enumerate(self.mem_lists):
             agent_obs_spaces[agent] = self.observation_space[i]
