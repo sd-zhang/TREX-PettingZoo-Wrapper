@@ -1,12 +1,11 @@
 from TREX_env._utils.sml_utils import read_flag_x_times
-from epymarl.src.envs.multiagentenv import MultiAgentEnv #ToDo: change this to PettingZoo
 from gym import spaces
 import numpy as np
 import TREX_Core._utils.runner
 import os
 
 
-class TrexEnv(MultiAgentEnv):
+class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
     """
 
     """
