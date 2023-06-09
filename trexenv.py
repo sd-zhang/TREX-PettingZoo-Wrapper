@@ -1,8 +1,12 @@
+import multiprocessing.managers
+
 from TREX_env._utils.sml_utils import read_flag_x_times
-from gym import spaces
-import numpy as np
+from TREX_env._utils.trex_utils import prep_trex, run_subprocess, add_envid_to_launchlist
 import TREX_Core._utils.runner
+from gymnasium import spaces
+import numpy as np
 import os
+import multiprocessing as mp
 
 
 class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
@@ -10,8 +14,7 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
 
     """
     def __init__(self,
-                 config_name=None,
-                 TREX_path=None, #deault that doesnt work
+                 config_name=None, #ToDo: add a default here
                  **kwargs):
         """
         This method initializes the environment and sets up the action and observation spaces
@@ -22,7 +25,7 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
         'action_space_type': list of 'discrete' or 'continuous' where len(list) == n_actions, #ToDo: continuous NOT implemented ATM
         'seed': random seed, not necessarily fully enforced yet! #FixMe: enforce random seeds properly
         """
-
+        TREX_path = TREX_Core.__path__[0]  ##ToDo: James - adjust this to whichever path is yours, TREX has to be set up as a package
         # changes where python is looking to open the right config file
         #ToDo: Daniel - Get steven to write a function that does this without having to launch the runner and then kill it
         cur_dir = os.getcwd()
@@ -31,6 +34,7 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
         self.config = runner.configs
         del runner
         os.chdir(cur_dir)
+
 
         # get the n agents from the config:
         self.n_agents = 0
@@ -64,10 +68,15 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
         self._setup_spaces()
 
         # set up env_id for the memory lists, etc
-        self.env_id = kwargs['env_id'] if 'env_id' in kwargs else 0
-        # print('initializing TREX env, env_id:', self.env_id, flush=True)
+        self.env_ids = kwargs['env_id'] if 'env_id' in kwargs else [0]
+        # print('initializing TREX env, env_id:', self.env_ids, flush=True)
+        self.smm_hash ='000000'
+        self.smm_address = ''
+        self.smm_port = 6666
         self.mem_lists = self._setup_interprocess_memory()
 
+        # set up trex
+        self.trex_pool = self.__startup_TREX_Core(config_name)
 
     def render(self, mode="human"):
         '''
@@ -166,20 +175,42 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
         '''
         self.t_env_steps = 0
         print('Resetting TREX atm not resetting TREX-Core, it is only a t_env_steps reset!') #ToDo: get steven to write the appropriate feature for Core
-        # print('reset trex_env', self.env_id, flush=True)
+        # print('reset trex_env', self.env_ids, flush=True)
         obs = self._get_obs()
         info = {}
         return obs, info
 
     def close(self):
         # gets rid of the smls
-        print('closing trex_env', self.env_id, flush=True)
+        print('closing trex_env', self.env_ids, flush=True)
         print('WARNING: this might be unreliable ATM, check that the processes are actually killed!')
         self.terminated = True
+        self.trex_pool.terminate()
         self._close_interprocess_memory()
 
+    def __startup_TREX_Core(self, config_name):
+        #start the trex simulation and returns the multiprocessing pool object
+
+        launch_lists = [prep_trex(config_name) for env in self.env_ids]
+        augmented_launch_lists = add_envid_to_launchlist(launch_lists, self.env_ids
+                                                        )
+
+        new_launch_list = []
+        for trex_launch_list in augmented_launch_lists:
+            new_launch_list.extend(trex_launch_list)
+
+        pool_size = int(mp.cpu_count() / 2)  # Adjust based on needs
+        pool = mp.Pool(processes=pool_size)
+        trex_results = pool.map_async(run_subprocess, new_launch_list)  # this launches the TREX-Core sim in a non-blocking fashion (so it runs in the background)
+        pool.close()
+
+        return pool
+
     def _close_interprocess_memory(self):
-        # print('closing interprocess memory', self.env_id, flush=True)
+        # print('closing interprocess memory', self.env_ids, flush=True)
+        if len(self.env_ids) > 1:
+            raise NotImplementedError('Multi-Environment TREX-Core not yet implemented')
+
         for agent in self.mem_lists:
             for memlist in self.mem_lists[agent]:
                 self.mem_lists[agent][memlist].shm.close()
@@ -224,8 +255,8 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
         return agents_action_space
 
     def ping(self):
-        print('sucessfully pinged TREX env', self.env_id, flush=True)
-        return self.env_id
+        print('sucessfully pinged TREX env', self.env_ids, flush=True)
+        return self.env_ids
 
     def _setup_spaces(self):
         '''
@@ -296,16 +327,22 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
         """
         from multiprocessing import shared_memory
         agents_smls = {}
+        if len (self.env_ids) > 1:
+            raise NotImplementedError('Multiple environments not yet supported')
+        else:
+            env_nbr = 0
+
+
         for agent in self.config['participants']:
             if self.config['participants'][agent]['trader']['type'] == 'gym_agent':
                 # this is where we set up the shared memory object, each agent needs 2 objects actions, observations
                 # todo: November 21 2022; for parallel runner there will need to be extra identifiers for sharelists to remain unique
-                actions_name = agent + str(self.env_id)+'_actions'
-                # print('trex-env: ', 'env_id', self.env_id, 'actions_name:', actions_name, flush=True)
-                obs_name = agent + str(self.env_id)+'_obs'
-                # print('trex-env: ','env_id', self.env_id, 'obs_name:', obs_name, flush=True)
-                reward_name = agent+str(self.env_id)+'_reward'
-                # print('trex-env: ','env_id', self.env_id, 'reward_name:', reward_name, flush=True)
+                actions_name = agent +'_' + str(self.env_ids[env_nbr])+'_actions'
+                # print('trex-env: ', 'env_id', self.env_ids[env_nbr], 'actions_name:', actions_name, flush=True)
+                obs_name = agent +'_' + str(self.env_ids[env_nbr])+'_obs'
+                # print('trex-env: ','env_id', self.env_ids[env_nbr], 'obs_name:', obs_name, flush=True)
+                reward_name = agent+'_'+str(self.env_ids[env_nbr])+'_reward'
+                # print('trex-env: ','env_id', self.env_ids[env_nbr], 'reward_name:', reward_name, flush=True)
 
                 # Flattened gym spaces. Actions are like this:
                 # [bid price, bid quantity, solar ask price, solar ask quantity, bess ask price, bess ask quantity]
@@ -315,8 +352,11 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
                 # observations = [0.0] * length_of_obs
 
                 actions_list = shared_memory.ShareableList([0.0]*length_of_actions, name=actions_name)
+                print(actions_name, flush=True)
                 obs_list = shared_memory.ShareableList([0.0]*length_of_obs, name=obs_name)
+                print(obs_name, flush=True)
                 reward_list = shared_memory.ShareableList([0.0, 0.0], name=reward_name)
+                print(reward_name, flush=True)
 
                 agents_smls[agent] = {
                     'obs':  obs_list,
