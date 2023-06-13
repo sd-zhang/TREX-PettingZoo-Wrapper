@@ -2,6 +2,7 @@ import os
 import sys
 import subprocess
 import TREX_Core
+import json
 
 # ToDo: move this to some utils
 def prep_trex(config_name):
@@ -28,10 +29,23 @@ def add_envid_to_launchlist(trex_launch_lists, env_ids=None, force_separate_port
         for client_nbr in range(len(trex_launch_lists[trex_launch_list_nbr])):
 
             # get the index of the client's port number
-            client_args = trex_launch_lists[trex_launch_list_nbr]
-            client_args = client_args[client_nbr]
-            client_args = client_args[1]
+            stuff = trex_launch_lists[trex_launch_list_nbr][client_nbr]
+            client_name = trex_launch_lists[trex_launch_list_nbr][client_nbr][0]
+            client_args = trex_launch_lists[trex_launch_list_nbr][client_nbr][1]
 
+            if client_name.endswith('sim_controller/sio_client.py'):
+
+                sim_controller_list = trex_launch_lists[trex_launch_list_nbr][client_nbr][1]
+
+                config_idx = [i for i, s in enumerate(sim_controller_list) if s.startswith('--config=')]
+                sim_controller_config = sim_controller_list[config_idx[0]]
+                left_side, right_side = sim_controller_config.split('"kill_list_name": ')
+                kill_list_name, right_side = right_side.split('null')
+                kill_list_name = '"sim_controller_kill_env_id_' + str(env_ids[trex_launch_list_nbr]) + '"'
+                sim_controller_config = left_side + '"kill_list_name": ' + kill_list_name + right_side
+
+                sim_controller_list[config_idx[0]] = sim_controller_config
+                trex_launch_lists[trex_launch_list_nbr][client_nbr] = (client_name, sim_controller_list)
 
             # FixMe: Steven tells me that this should not be necessary
             if force_separate_ports:

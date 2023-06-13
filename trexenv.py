@@ -48,8 +48,8 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
                             self.config['participants'][agent]['trader']['type'] == 'gym_agent']
 
         # set up general env variables
-        self.episode_length = self.config['study']['days'] * 24 * 60 * 60 / self.config['study']['time_step_size'] #Because the length of an episode is given by the config
-        self.episode_limit =  int(np.floor(self.config['study']['generations'])) #number of max episodes
+        self.episode_length = int(np.floor(self.config['study']['days'] * 24 * 60 * 60 / self.config['study']['time_step_size']) + 1) #Because the length of an episode is given by the config
+        self.episode_limit = int(np.floor(self.config['study']['generations'])) #number of max episodes
         self.t_env_steps = 0
         self._seed = kwargs['seed'] if 'seed' in kwargs else 0
         if 'seed' in kwargs:
@@ -73,7 +73,7 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
         self.smm_hash ='000000'
         self.smm_address = ''
         self.smm_port = 6666
-        self.mem_lists = self._setup_interprocess_memory()
+        self.agent_mem_lists, self.controller_smls = self._setup_interprocess_memory()
 
         # set up trex
         self.trex_pool = self.__startup_TREX_Core(config_name)
@@ -104,7 +104,7 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
 
         # first we decode the actions for each agent
         agent_actions_decoded = {}
-        for i, agent in enumerate(self.mem_lists):
+        for i, agent in enumerate(self.agent_mem_lists):
 
 
             agent_action = actions[i]
@@ -129,22 +129,19 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
         # once we hit a 'can write' we write the action in
         agents_actions_consumed = [False for _ in range(self.n_agents)]
         while not all(agents_actions_consumed):
-            for i, agent in enumerate(self.mem_lists):
-                if self.mem_lists[agent]['actions'][0] == False: #agent action not yet consumed
+            for i, agent in enumerate(self.agent_mem_lists):
+                if self.agent_mem_lists[agent]['actions'][0] == False: #agent action not yet consumed
                     agent_action = agent_actions_decoded[agent]
                     for j, action in enumerate(agent_action): #FixMe: for some reason slicing here doesnt want to work
-                        self.mem_lists[agent]['actions'][j+1] = action
-                    self.mem_lists[agent]['actions'][0] = True
+                        self.agent_mem_lists[agent]['actions'][j+1] = action
+                    self.agent_mem_lists[agent]['actions'][0] = True
                     agents_actions_consumed[i] = True
 
 
 
         # terminated:
         # this will need to be able to get set on the end of each generation
-        if self.t_env_steps < self.episode_length:
-            terminated = [0.0]*self.n_agents
-        else:
-            terminated = [1.0] * self.n_agents
+        terminated = [True]*self.n_agents if self.t_env_steps >= self.episode_length else [False]*self.n_agents
         self.t_env_steps += 1
 
         # Reward:
@@ -184,9 +181,19 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
         # gets rid of the smls
         print('closing trex_env', self.env_ids, flush=True)
         print('WARNING: this might be unreliable ATM, check that the processes are actually killed!')
-        self.terminated = True
+
+        # here we send the kill command to the sim controller and wait for the confirmation flag
+        for env_id in self.env_ids:
+            self.controller_smls[env_id]['kill'][1] = True #setting the command flag to kill
+            print('sent kill command to controller for env_id', env_id, flush=True)
+            while not self.controller_smls[env_id]['kill'][2]: #waiting for the confirmation flag
+                pass
+            print('killed controller for env_id', env_id, flush=True)
+
+        self._close_agent_memlists()
+        self._close_controller_smls()
         self.trex_pool.terminate()
-        self._close_interprocess_memory()
+        self.terminated = True
 
     def __startup_TREX_Core(self, config_name):
         #start the trex simulation and returns the multiprocessing pool object
@@ -206,15 +213,23 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
 
         return pool
 
-    def _close_interprocess_memory(self):
+    def _close_controller_smls(self):
+        for env_id in self.env_ids:
+            for sml_key in self.controller_smls[env_id].keys():
+                self.controller_smls[env_id][sml_key].shm.close()
+                self.controller_smls[env_id][sml_key].shm.unlink()
+        print('closed simcontroller smls')
+    def _close_agent_memlists(self):
         # print('closing interprocess memory', self.env_ids, flush=True)
         if len(self.env_ids) > 1:
             raise NotImplementedError('Multi-Environment TREX-Core not yet implemented')
 
-        for agent in self.mem_lists:
-            for memlist in self.mem_lists[agent]:
-                self.mem_lists[agent][memlist].shm.close()
-                self.mem_lists[agent][memlist].shm.unlink()
+        for agent in self.agent_mem_lists:
+            for memlist in self.agent_mem_lists[agent]:
+                self.agent_mem_lists[agent][memlist].shm.close()
+                self.agent_mem_lists[agent][memlist].shm.unlink()
+
+        print('closed agent smls')
 
     def get_state_size(self):
         """
@@ -238,7 +253,7 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
         FixMe: this is an epymarl leftover and will need to be adjusted at some point
         """
         agent_obs_spaces = {}
-        for i, agent in enumerate(self.mem_lists):
+        for i, agent in enumerate(self.agent_mem_lists):
             agent_obs_spaces[agent] = self.observation_space[i]
         return agent_obs_spaces
 
@@ -250,7 +265,7 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
         :return:
         """
         agents_action_space = {}
-        for i, agent in enumerate(self.mem_lists):
+        for i, agent in enumerate(self.agent_mem_lists):
             agents_action_space[agent] = self.action_space[i]
         return agents_action_space
 
@@ -327,10 +342,17 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
         """
         from multiprocessing import shared_memory
         agents_smls = {}
-        if len (self.env_ids) > 1:
+        if len(self.env_ids) > 1:
             raise NotImplementedError('Multiple environments not yet supported')
         else:
             env_nbr = 0
+
+        env_smls = {}
+        for env_id in self.env_ids:
+            # reset_tuple = ('reset', False, False)
+            # kill_tuple = ('kill', False, False)
+
+            env_smls[env_id] = {'kill': shared_memory.ShareableList(['kill', False, False], name='sim_controller_kill_env_id_'+str(env_id))}
 
 
         for agent in self.config['participants']:
@@ -364,7 +386,7 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
                     'rewards': reward_list
                 }
 
-        return agents_smls
+        return agents_smls, env_smls
 
     def _read_obs_values(self):
         """
@@ -374,17 +396,17 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
 
         self._obs = []
         while not all(agent_status):
-            #print('Memlist before', self.mem_lists, flush=True)
-            for i, agent_name in enumerate(self.mem_lists):
+            #print('Memlist before', self.agent_mem_lists, flush=True)
+            for i, agent_name in enumerate(self.agent_mem_lists):
             # agent is a dictionary 'obs', 'actions', 'rewards'
-                # if self.mem_lists[agent_name]['obs'][0] and not agent_status[i]: #if the flag is set and wwe have not read the values already
+                # if self.agent_mem_lists[agent_name]['obs'][0] and not agent_status[i]: #if the flag is set and wwe have not read the values already
                 if not agent_status[i]:
-                    obs_ready = read_flag_x_times(self.mem_lists[agent_name]['obs'], name='obs')
+                    obs_ready = read_flag_x_times(self.agent_mem_lists[agent_name]['obs'], name='obs')
                     if obs_ready:
-                        agent_obs = [self.mem_lists[agent_name]['obs'][j] for j in range(1,len(self.mem_lists[agent_name]['obs']))] #get the values, THIS SEEMS TO WORK WITH SHAREABLE LISTS SO THIS IS WHAT WE DO
+                        agent_obs = [self.agent_mem_lists[agent_name]['obs'][j] for j in range(1,len(self.agent_mem_lists[agent_name]['obs']))] #get the values, THIS SEEMS TO WORK WITH SHAREABLE LISTS SO THIS IS WHAT WE DO
                         self._obs.append(agent_obs)
                         agent_status[i] = True #set the
-                        # self.mem_lists[agent_name]['obs'][0] = False #Set flag to false
+                        # self.agent_mem_lists[agent_name]['obs'][0] = False #Set flag to false
 
         # print('self._obs after', self._obs)
 
@@ -396,16 +418,16 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
         agent_status = [False] * self.n_agents
         rewards_t = []
         while not all(agent_status):
-            for i, agent_name in enumerate(self.mem_lists):
+            for i, agent_name in enumerate(self.agent_mem_lists):
                 # agent is a dictionary 'obs', 'actions', 'rewards'
-                # if self.mem_lists[agent_name]['rewards'][0] and not agent_status[i]: #if the flag is set and wwe have not read the values already
+                # if self.agent_mem_lists[agent_name]['rewards'][0] and not agent_status[i]: #if the flag is set and wwe have not read the values already
                 if not agent_status[i]:
-                    reward_ready = read_flag_x_times(self.mem_lists[agent_name]['rewards'], name='rewards')
+                    reward_ready = read_flag_x_times(self.agent_mem_lists[agent_name]['rewards'], name='rewards')
                     if reward_ready:
                         # rewards are good to read
-                        rewards_t.append(self.mem_lists[agent_name]['rewards'][1])
+                        rewards_t.append(self.agent_mem_lists[agent_name]['rewards'][1])
                         agent_status[i] = True
-                        # self.mem_lists[agent_name]['rewards'][0] = False
+                        # self.agent_mem_lists[agent_name]['rewards'][0] = False
 
 
         #turn the reward into a float unless it is none, then turn it into a np.nan
