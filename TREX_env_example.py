@@ -1,5 +1,4 @@
 from trexenv import TrexEnv
-import TREX_Core
 
 
 '''The goal of this piece of code is to show how to:
@@ -31,7 +30,8 @@ if __name__ == '__main__':
         #query the policy
         actions = trex_env.action_space.sample()  # getting some dummy actions for illustration. Accepted types are np one dimensional arrays, ints or floats
         actions = list(actions) #the actions have to be a list, not a tuple. This is a limitation of the gym env
-
+        # for agent, action in enumerate(actions):
+        #    print('agent: ', agent, ' action: ', action, flush=True)
         obs, reward, terminated, truncated, info = trex_env.step(actions)
 
         #Disclaimer: Rewards at the first 2 steps of an episode are nans, because the market settles for 1 step ahead.
@@ -40,7 +40,7 @@ if __name__ == '__main__':
         # t==2 the has processed the settlements and now we get reward
         # it might make learning faster to accomodate for this shift somehow, but it is not strictly necessary!
 
-        print(reward)
+        # print('reward: ', reward, flush=True)
 
     trex_env.close() #this will attempt to kill the subprocess and the TREX-Core sim
     print('done')

@@ -352,11 +352,11 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
                 # observations = [0.0] * length_of_obs
 
                 actions_list = shared_memory.ShareableList([0.0]*length_of_actions, name=actions_name)
-                print(actions_name, flush=True)
+                # print(actions_name, flush=True)
                 obs_list = shared_memory.ShareableList([0.0]*length_of_obs, name=obs_name)
-                print(obs_name, flush=True)
+                # print(obs_name, flush=True)
                 reward_list = shared_memory.ShareableList([0.0, 0.0], name=reward_name)
-                print(reward_name, flush=True)
+                # print(reward_name, flush=True)
 
                 agents_smls[agent] = {
                     'obs':  obs_list,
