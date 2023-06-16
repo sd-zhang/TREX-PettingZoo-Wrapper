@@ -18,8 +18,12 @@ if __name__ == '__main__':
 
     try:
         # getting some useful stuff from the environment
+        #ToDo: push observation keys
+        #ToDo: add SoC to the observation space
+        # bid ask spread: range between highest bid price and lowest ask price
         agents_action_keys = trex_env.get_action_keys() #this is a list of the names for each agent's actions
         agents_action_spaces = trex_env.get_action_spaces() #this is a dict of the action spaces for each agent
+        agents_obs_keys = trex_env.get_obs_keys() #this is a list of the names for each agent's observations
         agents_obs_spaces = trex_env.get_obs_spaces() #this is a dict of the observation spaces for each agent
         episode_length = trex_env.episode_length  # this is the length of the episode, also defined in the config
         n_agents = trex_env.n_agents  # because agents are defined in the config

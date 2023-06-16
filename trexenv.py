@@ -15,6 +15,7 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
     """
     def __init__(self,
                  config_name=None, #ToDo: add a default here
+                 run_name=hash(os.times()) % 100, #ToDo: add a default here
                  **kwargs):
         """
         This method initializes the environment and sets up the action and observation spaces
@@ -73,6 +74,7 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
         self.smm_hash ='000000'
         self.smm_address = ''
         self.smm_port = 6666
+        self.run_name = run_name
         self.agent_mem_lists, self.controller_smls = self._setup_interprocess_memory()
 
         # set up trex
@@ -249,6 +251,8 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
     def get_action_keys(self):
         return self.agent_action_array
 
+    def get_obs_keys(self):
+        return self.agent_obs_array
     def get_obs_spaces(self):
         """
         THIS METHOD IS REQUIRED FOR GYM
@@ -354,11 +358,12 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
         for env_id in self.env_ids:
             # reset_tuple = ('reset', False, False)
             # kill_tuple = ('kill', False, False)
+            kill_list_name = 'sim_controller_kill_env_id_'+str(env_id)
             try:
-                kill_list = shared_memory.ShareableList(['kill', False, False], name='sim_controller_kill_env_id_'+str(env_id))
+                kill_list = shared_memory.ShareableList(['kill', False, False], name=kill_list_name)
             except:
-                print('found list already in memory, attaching onto it')
-                kill_list = shared_memory.ShareableList(name='sim_controller_kill_env_id_'+str(env_id))
+                print('found ', kill_list_name,' already in memory, attaching onto it.')
+                kill_list = shared_memory.ShareableList(name=kill_list_name)
             env_smls[env_id] = {'kill': kill_list}
 
 
@@ -383,21 +388,21 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
                 try:
                     actions_list = shared_memory.ShareableList([0.0]*length_of_actions, name=actions_name)
                 except:
-                    print('found list already in memory, attaching onto it')
+                    print('found ', actions_name,' already in memory, attaching onto it.')
                     actions_list = shared_memory.ShareableList(name=actions_name)
 
                 # print(actions_name, flush=True)
                 try:
                     obs_list = shared_memory.ShareableList([0.0]*length_of_obs, name=obs_name)
                 except:
-                    print('found list already in memory, attaching onto it')
+                    print('found ', obs_name,' already in memory, attaching onto it.')
                     obs_list = shared_memory.ShareableList(name=obs_name)
 
                 # print(obs_name, flush=True)
                 try:
                     reward_list = shared_memory.ShareableList([0.0, 0.0], name=reward_name)
                 except:
-                    print('found list already in memory, attaching onto it')
+                    print('found ', reward_name,' already in memory, attaching onto it.')
                     reward_list = shared_memory.ShareableList(name=reward_name)
                 # print(reward_name, flush=True)
 
