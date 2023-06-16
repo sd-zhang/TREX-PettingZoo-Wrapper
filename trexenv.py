@@ -218,6 +218,8 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
             for sml_key in self.controller_smls[env_id].keys():
                 self.controller_smls[env_id][sml_key].shm.close()
                 self.controller_smls[env_id][sml_key].shm.unlink()
+
+        del self.controller_smls
         print('closed simcontroller smls')
     def _close_agent_memlists(self):
         # print('closing interprocess memory', self.env_ids, flush=True)
@@ -229,6 +231,7 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
                 self.agent_mem_lists[agent][memlist].shm.close()
                 self.agent_mem_lists[agent][memlist].shm.unlink()
 
+        del self.agent_mem_lists
         print('closed agent smls')
 
     def get_state_size(self):
@@ -351,8 +354,12 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
         for env_id in self.env_ids:
             # reset_tuple = ('reset', False, False)
             # kill_tuple = ('kill', False, False)
-
-            env_smls[env_id] = {'kill': shared_memory.ShareableList(['kill', False, False], name='sim_controller_kill_env_id_'+str(env_id))}
+            try:
+                kill_list = shared_memory.ShareableList(['kill', False, False], name='sim_controller_kill_env_id_'+str(env_id))
+            except:
+                print('found list already in memory')
+                kill_list = shared_memory.ShareableList(name='sim_controller_kill_env_id_'+str(env_id))
+            env_smls[env_id] = {'kill': kill_list}
 
 
         for agent in self.config['participants']:
