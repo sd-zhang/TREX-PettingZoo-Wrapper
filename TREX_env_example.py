@@ -53,5 +53,13 @@ if __name__ == '__main__':
         print('done')
 
     except:
+        try:
+            trex_env._close_agent_memlists()
+        except:
+            print('failed to close agent memlists!')
+        try:
+             trex_env._close_controller_smls()
+        except:
+            print('failed to close controller smls!')
         trex_env.close()
         
