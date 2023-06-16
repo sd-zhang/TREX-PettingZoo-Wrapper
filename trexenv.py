@@ -357,7 +357,7 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
             try:
                 kill_list = shared_memory.ShareableList(['kill', False, False], name='sim_controller_kill_env_id_'+str(env_id))
             except:
-                print('found list already in memory')
+                print('found list already in memory, attaching onto it')
                 kill_list = shared_memory.ShareableList(name='sim_controller_kill_env_id_'+str(env_id))
             env_smls[env_id] = {'kill': kill_list}
 
@@ -380,11 +380,25 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
 
                 # observations = [0.0] * length_of_obs
 
-                actions_list = shared_memory.ShareableList([0.0]*length_of_actions, name=actions_name)
+                try:
+                    actions_list = shared_memory.ShareableList([0.0]*length_of_actions, name=actions_name)
+                except:
+                    print('found list already in memory, attaching onto it')
+                    actions_list = shared_memory.ShareableList(name=actions_name)
+
                 # print(actions_name, flush=True)
-                obs_list = shared_memory.ShareableList([0.0]*length_of_obs, name=obs_name)
+                try:
+                    obs_list = shared_memory.ShareableList([0.0]*length_of_obs, name=obs_name)
+                except:
+                    print('found list already in memory, attaching onto it')
+                    obs_list = shared_memory.ShareableList(name=obs_name)
+
                 # print(obs_name, flush=True)
-                reward_list = shared_memory.ShareableList([0.0, 0.0], name=reward_name)
+                try:
+                    reward_list = shared_memory.ShareableList([0.0, 0.0], name=reward_name)
+                except:
+                    print('found list already in memory, attaching onto it')
+                    reward_list = shared_memory.ShareableList(name=reward_name)
                 # print(reward_name, flush=True)
 
                 agents_smls[agent] = {
