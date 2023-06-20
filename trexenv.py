@@ -7,6 +7,7 @@ from gymnasium import spaces
 import numpy as np
 import os
 import multiprocessing as mp
+import time
 
 
 class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
@@ -75,7 +76,7 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
         self.smm_address = ''
         self.smm_port = 6666
         self.run_name = run_name
-        self.agent_mem_lists, self.controller_smls = self._setup_interprocess_memory()
+        self._setup_interprocess_memory()
 
         # set up trex
         self.trex_pool = self.__startup_TREX_Core(config_name)
@@ -129,17 +130,19 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
 
         # then we wait cycle over each agent's memorylist to tell us we can write
         # once we hit a 'can write' we write the action in
-        agents_actions_consumed = [False for _ in range(self.n_agents)]
-        while not all(agents_actions_consumed):
-            for i, agent in enumerate(self.agent_mem_lists):
-                if self.agent_mem_lists[agent]['actions'][0] == False: #agent action not yet consumed
-                    agent_action = agent_actions_decoded[agent]
-                    for j, action in enumerate(agent_action): #FixMe: for some reason slicing here doesnt want to work
-                        self.agent_mem_lists[agent]['actions'][j+1] = action
-                    self.agent_mem_lists[agent]['actions'][0] = True
-                    agents_actions_consumed[i] = True
+        should_be_false_now = [self.agent_mem_lists[agent]['actions'][0] for agent in self.agent_mem_lists]
+        while all(should_be_false_now):
+            time.sleep(0.0001)
+            should_be_false_now = [self.agent_mem_lists[agent]['actions'][0] for agent in self.agent_mem_lists]
 
+        # now that all past actions have been consumed, we can write the new actions
+        for i, agent in enumerate(self.agent_mem_lists):
+            agent_action = agent_actions_decoded[agent]
+            for j, action in enumerate(agent_action): #FixMe: for some reason slicing here doesnt want to work
+                self.agent_mem_lists[agent]['actions'][j+1] = action
+            self.agent_mem_lists[agent]['actions'][0] = True #set the can be read to true
 
+        assert all([self.agent_mem_lists[agent]['actions'][0] for agent in self.agent_mem_lists]), 'actions were not written correctly'
 
         # terminated:
         # this will need to be able to get set on the end of each generation
@@ -175,6 +178,9 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
         self.t_env_steps = 0
         print('Resetting TREX atm not resetting TREX-Core, it is only a t_env_steps reset!') #ToDo: get steven to write the appropriate feature for Core
         # print('reset trex_env', self.env_ids, flush=True)
+        #resetting the memlists to be sure nothing gets fucked up here
+        self._setup_interprocess_memory() #ToDo: this can probably be done slimmer
+
         obs = self._get_obs()
         info = {}
         return obs, info
@@ -348,13 +354,13 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
         Returns: Dictionary {agent_identification_from_config : { obs_list :obs_list_object, action_list :action_list_object
         """
         from multiprocessing import shared_memory
-        agents_smls = {}
+
         if len(self.env_ids) > 1:
             raise NotImplementedError('Multiple environments not yet supported')
         else:
             env_nbr = 0
 
-        env_smls = {}
+        self.controller_smls = {}
         for env_id in self.env_ids:
             # reset_tuple = ('reset', False, False)
             # kill_tuple = ('kill', False, False)
@@ -364,11 +370,13 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
             except:
                 print('found ', kill_list_name,' already in memory, attaching onto it.')
                 kill_list = shared_memory.ShareableList(name=kill_list_name)
-            env_smls[env_id] = {'kill': kill_list}
+            self.controller_smls[env_id] = {'kill': kill_list}
 
 
+        self.agent_mem_lists = {}
         for agent in self.config['participants']:
             if self.config['participants'][agent]['trader']['type'] == 'gym_agent':
+                self.agent_mem_lists[agent] = {}
                 # this is where we set up the shared memory object, each agent needs 2 objects actions, observations
                 # todo: November 21 2022; for parallel runner there will need to be extra identifiers for sharelists to remain unique
                 actions_name = agent +'_' + str(self.env_ids[env_nbr])+'_actions'
@@ -379,84 +387,82 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
                 # print('trex-env: ','env_id', self.env_ids[env_nbr], 'reward_name:', reward_name, flush=True)
 
                 # Flattened gym spaces. Actions are like this:
-                # [bid price, bid quantity, solar ask price, solar ask quantity, bess ask price, bess ask quantity]
                 length_of_obs = len(self.agent_obs_array[agent]) + 1
                 length_of_actions = len(self.agent_action_array[agent]) + 1
 
-                # observations = [0.0] * length_of_obs
-
+                # all smls have the follwing convention:
+                # [0]: ready to be read if True, ready to be written if False
+                # [1:]: the values
                 try:
                     actions_list = shared_memory.ShareableList([0.0]*length_of_actions, name=actions_name)
                 except:
                     print('found ', actions_name,' already in memory, attaching onto it.')
                     actions_list = shared_memory.ShareableList(name=actions_name)
-
+                actions_list[0] = False #FixMe: is this right?
+                self.agent_mem_lists[agent]['actions'] = actions_list
                 # print(actions_name, flush=True)
+
                 try:
                     obs_list = shared_memory.ShareableList([0.0]*length_of_obs, name=obs_name)
                 except:
                     print('found ', obs_name,' already in memory, attaching onto it.')
                     obs_list = shared_memory.ShareableList(name=obs_name)
-
+                obs_list[0] = True
+                self.agent_mem_lists[agent]['obs'] = obs_list
                 # print(obs_name, flush=True)
                 try:
                     reward_list = shared_memory.ShareableList([0.0, 0.0], name=reward_name)
                 except:
                     print('found ', reward_name,' already in memory, attaching onto it.')
                     reward_list = shared_memory.ShareableList(name=reward_name)
+                reward_list[0] = False
+                self.agent_mem_lists[agent]['rewards'] = reward_list
                 # print(reward_name, flush=True)
 
-                agents_smls[agent] = {
-                    'obs':  obs_list,
-                    'actions': actions_list,
-                    'rewards': reward_list
-                }
-
-        return agents_smls, env_smls
 
     def _read_obs_values(self):
         """
         This method cycles through the mem lists of the agents until they all have all read the information.
         """
-        agent_status = [False] * self.n_agents
 
         self._obs = []
-        while not all(agent_status):
-            #print('Memlist before', self.agent_mem_lists, flush=True)
-            for i, agent_name in enumerate(self.agent_mem_lists):
-            # agent is a dictionary 'obs', 'actions', 'rewards'
-                # if self.agent_mem_lists[agent_name]['obs'][0] and not agent_status[i]: #if the flag is set and wwe have not read the values already
-                if not agent_status[i]:
-                    obs_ready = read_flag_x_times(self.agent_mem_lists[agent_name]['obs'], name='obs')
-                    if obs_ready:
-                        agent_obs = [self.agent_mem_lists[agent_name]['obs'][j] for j in range(1,len(self.agent_mem_lists[agent_name]['obs']))] #get the values, THIS SEEMS TO WORK WITH SHAREABLE LISTS SO THIS IS WHAT WE DO
-                        self._obs.append(agent_obs)
-                        agent_status[i] = True #set the
-                        # self.agent_mem_lists[agent_name]['obs'][0] = False #Set flag to false
 
+        # lets make sure all agent obs are ready to be read
+        agent_status = [self.agent_mem_lists[agent]['obs'][0] for agent in self.agent_mem_lists] #We expect these to be True by now
+        while not all(agent_status):
+            time.sleep(0.001)  # wait for 1ms
+            agent_status = [self.agent_mem_lists[agent]['obs'][0] for agent in self.agent_mem_lists]
+
+        #after having made sure all are true, we can read the values
+        for i, agent_name in enumerate(self.agent_mem_lists):
+        # agent is a dictionary 'obs', 'actions', 'rewards'
+
+            agent_obs = [self.agent_mem_lists[agent_name]['obs'][j] for j in range(1,len(self.agent_mem_lists[agent_name]['obs']))] #get the values, THIS SEEMS TO WORK WITH SHAREABLE LISTS SO THIS IS WHAT WE DO
+            self._obs.append(agent_obs)
+            self.agent_mem_lists[agent_name]['obs'][0] = False #Set flag to false, obs were read and are ready to be written again
+
+        assert all([self.agent_mem_lists[agent]['obs'][0] for agent in self.agent_mem_lists]) == False, 'all agent obs should be read by now and ready to be written'
         # print('self._obs after', self._obs)
+
 
     def _read_reward_values(self):
         """
         This method cycles through the reward mem lists of the agents until they all have read the information.
         """
-        # encode the agents as one hot vectors:
-        agent_status = [False] * self.n_agents
         rewards_t = []
+
+
+        agent_status = [self.agent_mem_lists[agent]['rewards'][0] for agent in self.agent_mem_lists] #We expect these to be True by now
         while not all(agent_status):
-            for i, agent_name in enumerate(self.agent_mem_lists):
-                # agent is a dictionary 'obs', 'actions', 'rewards'
-                # if self.agent_mem_lists[agent_name]['rewards'][0] and not agent_status[i]: #if the flag is set and wwe have not read the values already
-                if not agent_status[i]:
-                    reward_ready = read_flag_x_times(self.agent_mem_lists[agent_name]['rewards'], name='rewards')
-                    if reward_ready:
-                        # rewards are good to read
-                        rewards_t.append(self.agent_mem_lists[agent_name]['rewards'][1])
-                        agent_status[i] = True
-                        # self.agent_mem_lists[agent_name]['rewards'][0] = False
+            time.sleep(0.001)
+            agent_status = [self.agent_mem_lists[agent]['rewards'][0] for agent in self.agent_mem_lists]
 
+        for i, agent_name in enumerate(self.agent_mem_lists):
+            rewards_t.append(self.agent_mem_lists[agent_name]['rewards'][1])
+            self.agent_mem_lists[agent_name]['rewards'][0] = False #Set flag to false, obs were read
 
-        #turn the reward into a float unless it is none, then turn it into a np.nan
+        assert all([self.agent_mem_lists[agent]['rewards'][0] for agent in self.agent_mem_lists]) == False, 'all agent rewards should be read by now and ready to be written'
+
         rewards_t = [float(reward) if reward is not None else np.nan for reward in rewards_t]
         return rewards_t
 
