@@ -53,6 +53,7 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
         self.episode_length = int(np.floor(self.config['study']['days'] * 24 * 60 * 60 / self.config['study']['time_step_size']) + 1) #Because the length of an episode is given by the config
         self.episode_limit = int(np.floor(self.config['study']['generations'])) #number of max episodes
         self.t_env_steps = 0
+        self.episode_current = 0
         self._seed = kwargs['seed'] if 'seed' in kwargs else 0
         if 'seed' in kwargs:
             print('setting seed to', kwargs['seed'], 'BEWARE that this is not fully enforced yet!')
@@ -175,32 +176,56 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
         then reboot them all and have the gym traders reconnect to the shared memory objects.
         TODO Peter: November 30, 2022; This is going to need to reset the TREX instance
         '''
-        self.t_env_steps = 0
-        print('Resetting TREX atm not resetting TREX-Core, it is only a t_env_steps reset!') #ToDo: get steven to write the appropriate feature for Core
+
         # print('reset trex_env', self.env_ids, flush=True)
         #resetting the memlists to be sure nothing gets fucked up here
-        self._setup_interprocess_memory() #ToDo: this can probably be done slimmer
+        # reset the simulation to next gen
 
+        for env_id in self.env_ids:
+            assert self.controller_smls[env_id]['kill'][2] == 'reset', 'reset section not found in envcontroller sml'
+            self.controller_smls[env_id]['kill'][3] = True #set the reset flag
+
+        self._force_nonblocking_sml()
+
+        envs_reset = [self.controller_smls[env_id]['kill'][3] for env_id in self.controller_smls]
+        while all(envs_reset):
+            time.sleep(0.01)
+            envs_reset = [self.controller_smls[env_id]['kill'][3] for env_id in self.controller_smls]
+
+        print('done reset')
+        self._reset_interprocess_memory()
+
+        #now we're reset and g2g
+        self.t_env_steps = 0
+        self.episode_current += 1
         obs = self._get_obs()
         info = {}
         return obs, info
 
     def close(self):
         # gets rid of the smls
-        print('closing trex_env', self.env_ids, flush=True)
         print('WARNING: this might be unreliable ATM, check that the processes are actually killed!')
 
         # here we send the kill command to the sim controller and wait for the confirmation flag
         for env_id in self.env_ids:
             self.controller_smls[env_id]['kill'][1] = True #setting the command flag to kill
-            print('sent kill command to controller for env_id', env_id, flush=True)
-            while not self.controller_smls[env_id]['kill'][2]: #waiting for the confirmation flag
-                pass
-            print('killed controller for env_id', env_id, flush=True)
 
+        self._force_nonblocking_sml()
+
+        print('sent kill command to all envs')
+
+        kill_signals_not_yet_read = [self.controller_smls[env_id]['kill'][1] for env_id in self.controller_smls] #should be set to false
+        while all(kill_signals_not_yet_read):
+            time.sleep(0.01)
+            kill_signals_not_yet_read = []
+            for env_id in self.controller_smls:
+                signal_read = self.controller_smls[env_id]['kill'][1]
+                kill_signals_not_yet_read.append(signal_read)
+        print('all envs read kill command')
+
+        self.trex_pool.terminate()
         self._close_agent_memlists()
         self._close_controller_smls()
-        self.trex_pool.terminate()
         self.terminated = True
 
     def __startup_TREX_Core(self, config_name):
@@ -366,7 +391,7 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
             # kill_tuple = ('kill', False, False)
             kill_list_name = 'sim_controller_kill_env_id_'+str(env_id)
             try:
-                kill_list = shared_memory.ShareableList(['kill', False, False], name=kill_list_name)
+                kill_list = shared_memory.ShareableList(['kill', False, 'reset', False], name=kill_list_name)
             except:
                 print('found ', kill_list_name,' already in memory, attaching onto it.')
                 kill_list = shared_memory.ShareableList(name=kill_list_name)
@@ -398,7 +423,6 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
                 except:
                     print('found ', actions_name,' already in memory, attaching onto it.')
                     actions_list = shared_memory.ShareableList(name=actions_name)
-                actions_list[0] = False #FixMe: is this right?
                 self.agent_mem_lists[agent]['actions'] = actions_list
                 # print(actions_name, flush=True)
 
@@ -407,7 +431,6 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
                 except:
                     print('found ', obs_name,' already in memory, attaching onto it.')
                     obs_list = shared_memory.ShareableList(name=obs_name)
-                obs_list[0] = True
                 self.agent_mem_lists[agent]['obs'] = obs_list
                 # print(obs_name, flush=True)
                 try:
@@ -415,11 +438,27 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
                 except:
                     print('found ', reward_name,' already in memory, attaching onto it.')
                     reward_list = shared_memory.ShareableList(name=reward_name)
-                reward_list[0] = False
                 self.agent_mem_lists[agent]['rewards'] = reward_list
                 # print(reward_name, flush=True)
 
+        self._reset_interprocess_memory()
 
+    def _force_nonblocking_sml(self):
+        print('setting flushstate for memlists') #this is  sowe can make sure that at least one step happens
+        for agent in self.agent_mem_lists:
+            self.agent_mem_lists[agent]['actions'][0] = True #can be read, doesnt matteranyways
+            self.agent_mem_lists[agent]['obs'][0] = False #shoudl be written
+            self.agent_mem_lists[agent]['rewards'][0] = False
+    def _reset_interprocess_memory(self):
+        for env_id in self.controller_smls:
+            self.controller_smls[env_id]['kill'][1] = False # kill sim command
+            self.controller_smls[env_id]['kill'][3] = False # reset sim command
+
+        # [0]: ready to be read if True, ready to be written if False
+        for agent in self.agent_mem_lists:
+            self.agent_mem_lists[agent]['actions'][0] = False
+            self.agent_mem_lists[agent]['obs'][0] = True
+            self.agent_mem_lists[agent]['rewards'][0] = True
     def _read_obs_values(self):
         """
         This method cycles through the mem lists of the agents until they all have all read the information.
