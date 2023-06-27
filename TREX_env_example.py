@@ -15,7 +15,9 @@ def zero_heuristic(action_space):
     actions = [np.zeros_like(agent_action_space) for agent_action_space in action_sample]
     return actions
 
-
+def run_sim_with_heuristic(heuristic, config_name, **kwargs):
+    trex_env = TrexEnv(config_name=config_name, **kwargs)
+    # getting some useful stuff from the environment
 
 if __name__ == '__main__':
     heuristic = random_heuristic
@@ -29,6 +31,7 @@ if __name__ == '__main__':
     # ToDo: push observation keys
     # ToDo: add SoC to the observation space
     # bid ask spread: range between highest bid price and lowest ask price
+    agent_names = trex_env.get_agent_names()  # this is a list of the names for each agent
     agents_action_keys = trex_env.get_action_keys()  # this is a list of the names for each agent's actions
     agents_action_spaces = trex_env.get_action_spaces()  # this is a dict of the action spaces for each agent
     agents_obs_keys = trex_env.get_obs_keys()  # this is a list of the names for each agent's observations
@@ -70,11 +73,10 @@ if __name__ == '__main__':
         for agent, agent_reward in enumerate(episode_cumulative_reward):
             cumulative_reward[agent].append(agent_reward)
 
-    for agent, agent_reward in enumerate(cumulative_reward):
+    for agent_names, agent_reward in zip(agent_names, cumulative_reward):
         print('agent: ', agent, ' mean return: ', np.mean(agent_reward))
 
-    print('simulation done, closing env')
-    trex_env.close()  # this will attempt to kill the subprocess and the TREX-Core sim
+    # print('simulation done, closing env')
+    trex_env.close()  # ATM it is necessary to do this as LAST step!
 
 
-        

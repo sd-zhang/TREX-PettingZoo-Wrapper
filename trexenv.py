@@ -192,7 +192,7 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
             time.sleep(0.01)
             envs_reset = [self.controller_smls[env_id]['kill'][3] for env_id in self.controller_smls]
 
-        print('done reset')
+        # print('done reset')
         self._reset_interprocess_memory()
 
         #now we're reset and g2g
@@ -204,7 +204,7 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
 
     def close(self):
         # gets rid of the smls
-        print('WARNING: this might be unreliable ATM, check that the processes are actually killed!')
+        # print('WARNING: this might be unreliable ATM, check that the processes are actually killed!')
 
         # here we send the kill command to the sim controller and wait for the confirmation flag
         for env_id in self.env_ids:
@@ -212,7 +212,6 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
 
         self._force_nonblocking_sml()
 
-        print('sent kill command to all envs')
 
         kill_signals_not_yet_read = [self.controller_smls[env_id]['kill'][1] for env_id in self.controller_smls] #should be set to false
         while all(kill_signals_not_yet_read):
@@ -221,7 +220,6 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
             for env_id in self.controller_smls:
                 signal_read = self.controller_smls[env_id]['kill'][1]
                 kill_signals_not_yet_read.append(signal_read)
-        print('all envs read kill command')
 
         self.trex_pool.terminate()
         self._close_agent_memlists()
@@ -266,6 +264,8 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
 
         del self.agent_mem_lists
         print('closed agent smls')
+    def get_agent_names(self):
+        return self.agent_names
 
     def get_state_size(self):
         """
@@ -444,7 +444,7 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
         self._reset_interprocess_memory()
 
     def _force_nonblocking_sml(self):
-        print('setting flushstate for memlists') #this is  sowe can make sure that at least one step happens
+        # print('setting flushstate for memlists') #this is  sowe can make sure that at least one step happens
         for agent in self.agent_mem_lists:
             self.agent_mem_lists[agent]['actions'][0] = True #can be read, doesnt matteranyways
             self.agent_mem_lists[agent]['obs'][0] = False #shoudl be written
