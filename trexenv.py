@@ -207,19 +207,19 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
         # print('WARNING: this might be unreliable ATM, check that the processes are actually killed!')
 
         # here we send the kill command to the sim controller and wait for the confirmation flag
-        for env_id in self.env_ids:
-            self.controller_smls[env_id]['kill'][1] = True #setting the command flag to kill
-
-        self._force_nonblocking_sml()
-
-
-        kill_signals_not_yet_read = [self.controller_smls[env_id]['kill'][1] for env_id in self.controller_smls] #should be set to false
-        while all(kill_signals_not_yet_read):
-            time.sleep(0.01)
-            kill_signals_not_yet_read = []
-            for env_id in self.controller_smls:
-                signal_read = self.controller_smls[env_id]['kill'][1]
-                kill_signals_not_yet_read.append(signal_read)
+        # for env_id in self.env_ids:
+        #     self.controller_smls[env_id]['kill'][1] = True #setting the command flag to kill
+        #
+        # self._force_nonblocking_sml()
+        #
+        #
+        # kill_signals_not_yet_read = [self.controller_smls[env_id]['kill'][1] for env_id in self.controller_smls] #should be set to false
+        # while all(kill_signals_not_yet_read):
+        #     time.sleep(0.01)
+        #     kill_signals_not_yet_read = []
+        #     for env_id in self.controller_smls:
+        #         signal_read = self.controller_smls[env_id]['kill'][1]
+        #         kill_signals_not_yet_read.append(signal_read)
 
         self.trex_pool.terminate()
         self._close_agent_memlists()
