@@ -207,23 +207,23 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
         # print('WARNING: this might be unreliable ATM, check that the processes are actually killed!')
 
         # here we send the kill command to the sim controller and wait for the confirmation flag
-        # for env_id in self.env_ids:
-        #     self.controller_smls[env_id]['kill'][1] = True #setting the command flag to kill
-        #
-        # self._force_nonblocking_sml()
-        #
-        #
-        # kill_signals_not_yet_read = [self.controller_smls[env_id]['kill'][1] for env_id in self.controller_smls] #should be set to false
-        # while all(kill_signals_not_yet_read):
-        #     time.sleep(0.01)
-        #     kill_signals_not_yet_read = []
-        #     for env_id in self.controller_smls:
-        #         signal_read = self.controller_smls[env_id]['kill'][1]
-        #         kill_signals_not_yet_read.append(signal_read)
-
-        self.trex_pool.terminate()
+        print('sending kill signal to trex processes')
+        for env_id in self.env_ids:
+            self.controller_smls[env_id]['kill'][1] = True #setting the command flag to kill
+        self._force_nonblocking_sml()
+        print('waiting for trex processes to die')
+        kill_signals_not_yet_read = [self.controller_smls[env_id]['kill'][1] for env_id in self.controller_smls] #should be set to false
+        while all(kill_signals_not_yet_read):
+            time.sleep(0.01)
+            kill_signals_not_yet_read = []
+            for env_id in self.controller_smls:
+                signal_read = self.controller_smls[env_id]['kill'][1]
+                kill_signals_not_yet_read.append(signal_read)
+        print('trex processes killed')
         self._close_agent_memlists()
         self._close_controller_smls()
+
+        self.trex_pool.terminate()
         self.terminated = True
 
     def __startup_TREX_Core(self, config_name):
@@ -237,7 +237,7 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
         for trex_launch_list in augmented_launch_lists:
             new_launch_list.extend(trex_launch_list)
 
-        pool_size = int(mp.cpu_count() / 2)  # Adjust based on needs
+        pool_size = int(mp.cpu_count() - 2)  # Adjust based on needs
         pool = mp.Pool(processes=pool_size)
         trex_results = pool.map_async(run_subprocess, new_launch_list)  # this launches the TREX-Core sim in a non-blocking fashion (so it runs in the background)
         pool.close()
@@ -443,7 +443,7 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
 
         self._reset_interprocess_memory()
 
-    def _force_nonblocking_sml(self):
+    def _force_nonblocking_sml(self): #this is a hack to make sure that the smls of the agents are not blocking any type of env command
         # print('setting flushstate for memlists') #this is  sowe can make sure that at least one step happens
         for agent in self.agent_mem_lists:
             self.agent_mem_lists[agent]['actions'][0] = True #can be read, doesnt matteranyways
