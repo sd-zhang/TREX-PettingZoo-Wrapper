@@ -207,11 +207,11 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
         # print('WARNING: this might be unreliable ATM, check that the processes are actually killed!')
 
         # here we send the kill command to the sim controller and wait for the confirmation flag
-        print('sending kill signal to trex processes')
+        # print('sending kill signal to trex processes')
         for env_id in self.env_ids:
             self.controller_smls[env_id]['kill'][1] = True #setting the command flag to kill
         self._force_nonblocking_sml()
-        print('waiting for trex processes to die')
+        # print('waiting for trex processes to die')
         kill_signals_not_yet_read = [self.controller_smls[env_id]['kill'][1] for env_id in self.controller_smls] #should be set to false
         while all(kill_signals_not_yet_read):
             time.sleep(0.01)
@@ -219,7 +219,8 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
             for env_id in self.controller_smls:
                 signal_read = self.controller_smls[env_id]['kill'][1]
                 kill_signals_not_yet_read.append(signal_read)
-        print('trex processes killed')
+        # print('trex processes killed')
+        
         self._close_agent_memlists()
         self._close_controller_smls()
 
