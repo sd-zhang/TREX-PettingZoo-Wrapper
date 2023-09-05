@@ -220,7 +220,7 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
                 signal_read = self.controller_smls[env_id]['kill'][1]
                 kill_signals_not_yet_read.append(signal_read)
         # print('trex processes killed')
-        
+
         self._close_agent_memlists()
         self._close_controller_smls()
 
