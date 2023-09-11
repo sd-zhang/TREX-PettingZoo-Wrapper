@@ -131,10 +131,10 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
 
         # then we wait cycle over each agent's memorylist to tell us we can write
         # once we hit a 'can write' we write the action in
-        should_be_false_now = [self.agent_mem_lists[agent]['actions'][0] for agent in self.agent_mem_lists]
-        while all(should_be_false_now):
-            time.sleep(0.0001)
-            should_be_false_now = [self.agent_mem_lists[agent]['actions'][0] for agent in self.agent_mem_lists]
+        # should_be_false_now = [self.agent_mem_lists[agent]['actions'][0] for agent in self.agent_mem_lists]
+        while all([self.agent_mem_lists[agent]['actions'][0] for agent in self.agent_mem_lists]):
+            time.sleep(0.01)
+            # should_be_false_now = [self.agent_mem_lists[agent]['actions'][0] for agent in self.agent_mem_lists]
 
         # now that all past actions have been consumed, we can write the new actions
         for i, agent in enumerate(self.agent_mem_lists):
@@ -187,10 +187,10 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
 
         self._force_nonblocking_sml()
 
-        envs_reset = [self.controller_smls[env_id]['kill'][3] for env_id in self.controller_smls]
-        while all(envs_reset):
+        # envs_reset = [self.controller_smls[env_id]['kill'][3] for env_id in self.controller_smls]
+        while all([self.controller_smls[env_id]['kill'][3] for env_id in self.controller_smls]):
             time.sleep(0.01)
-            envs_reset = [self.controller_smls[env_id]['kill'][3] for env_id in self.controller_smls]
+            # envs_reset = [self.controller_smls[env_id]['kill'][3] for env_id in self.controller_smls]
 
         # print('done reset')
         self._reset_interprocess_memory()
@@ -212,13 +212,13 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
             self.controller_smls[env_id]['kill'][1] = True #setting the command flag to kill
         self._force_nonblocking_sml()
         # print('waiting for trex processes to die')
-        kill_signals_not_yet_read = [self.controller_smls[env_id]['kill'][1] for env_id in self.controller_smls] #should be set to false
-        while all(kill_signals_not_yet_read):
+        # kill_signals_not_yet_read = [self.controller_smls[env_id]['kill'][1] for env_id in self.controller_smls] #should be set to false
+        while all([self.controller_smls[env_id]['kill'][1] for env_id in self.controller_smls]):
             time.sleep(0.01)
-            kill_signals_not_yet_read = []
-            for env_id in self.controller_smls:
-                signal_read = self.controller_smls[env_id]['kill'][1]
-                kill_signals_not_yet_read.append(signal_read)
+            # kill_signals_not_yet_read = []
+            # for env_id in self.controller_smls:
+            #     signal_read = self.controller_smls[env_id]['kill'][1]
+            #     kill_signals_not_yet_read.append(signal_read)
         # print('trex processes killed')
 
         self._close_agent_memlists()
@@ -468,11 +468,13 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
         self._obs = []
 
         # lets make sure all agent obs are ready to be read
-        agent_status = [self.agent_mem_lists[agent]['obs'][0] for agent in self.agent_mem_lists] #We expect these to be True by now
-        while not all(agent_status):
-            time.sleep(0.001)  # wait for 1ms
-            agent_status = [self.agent_mem_lists[agent]['obs'][0] for agent in self.agent_mem_lists]
-
+        # agent_status = [self.agent_mem_lists[agent]['obs'][0] for agent in self.agent_mem_lists] #We expect these to be True by now
+        while not all([self.agent_mem_lists[agent]['obs'][0] for agent in self.agent_mem_lists]):
+            time.sleep(0.01)  # wait for 1ms
+            # try:
+            #     agent_status = [self.agent_mem_lists[agent]['obs'][0] for agent in self.agent_mem_lists]
+            # except:
+            #     pass
         #after having made sure all are true, we can read the values
         for i, agent_name in enumerate(self.agent_mem_lists):
         # agent is a dictionary 'obs', 'actions', 'rewards'
@@ -492,10 +494,10 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
         rewards_t = []
 
 
-        agent_status = [self.agent_mem_lists[agent]['rewards'][0] for agent in self.agent_mem_lists] #We expect these to be True by now
-        while not all(agent_status):
-            time.sleep(0.001)
-            agent_status = [self.agent_mem_lists[agent]['rewards'][0] for agent in self.agent_mem_lists]
+        # agent_status = [self.agent_mem_lists[agent]['rewards'][0] for agent in self.agent_mem_lists] #We expect these to be True by now
+        while not all([self.agent_mem_lists[agent]['rewards'][0] for agent in self.agent_mem_lists]):
+            time.sleep(0.01)
+            # agent_status = [self.agent_mem_lists[agent]['rewards'][0] for agent in self.agent_mem_lists]
 
         for i, agent_name in enumerate(self.agent_mem_lists):
             rewards_t.append(self.agent_mem_lists[agent_name]['rewards'][1])

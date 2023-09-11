@@ -16,7 +16,6 @@ def zero_heuristic(action_space, **kwargs):
     actions = [np.zeros_like(agent_action_space) for agent_action_space in action_sample]
 
     return actions
-
 def constant_price_heuristic(action_space, price=0.11, **kwargs):
     assert 'agents_action_keys' in kwargs.keys(), 'this heuristic needs to know the names of the actions, please provide agents_action_keys'
     assert 'agents_obs_keys' in kwargs.keys(), 'this heuristic needs to know the names of the observations, please provide agents_obs_keys'
@@ -56,8 +55,6 @@ def constant_price_heuristic(action_space, price=0.11, **kwargs):
 
 
     return actions
-
-
 
 def greedy_battery_management_heuristic(action_space, **kwargs):
     assert 'agents_action_keys' in kwargs.keys(), 'this heuristic needs to know the names of the actions, please provide agents_action_keys'
@@ -108,14 +105,15 @@ def run_heuristic(heuristic, config_name='GymIntegration_test', action_space_typ
     episode_length = trex_env.episode_length # this is the length of the episode, also defined in the config
     n_agents = trex_env.n_agents  # because agents are defined in the config
 
-    episodes = 10  # we can also get treex_env.episode_limit, which is the number of episodes defined in the config
+    episodes = 1000# we can also get treex_env.episode_limit, which is the number of episodes defined in the config
     cumulative_rewards = [[] for _ in range(n_agents)]
+    episode_steps = []
     for episode in range(episodes):
         obs, info = trex_env.reset()  # this should print out a warning. The reset only resets stuff internally in the gym env, it does not reset the connected TREX-core sim. Steven should be on this but it's not high priority atm
         steps = 0
         terminated = False
         episode_cumulative_reward = [0 for _ in range(n_agents)]
-        while steps <= episode_length:
+        while not terminated:
             # query the policy
             actions = heuristic(action_space=trex_env.action_space,
                                 agents_action_keys=agents_action_keys,
@@ -144,11 +142,12 @@ def run_heuristic(heuristic, config_name='GymIntegration_test', action_space_typ
             steps += 1
         for agent, agent_reward in enumerate(episode_cumulative_reward):
             cumulative_rewards[agent].append(agent_reward)
+            episode_steps.append(steps)
 
     # print('simulation done, closing env')
     trex_env.close()  # ATM it is necessary to do this as LAST step!
 
-    return cumulative_rewards, agent_names
+    return cumulative_rewards, agent_names, episode_steps
 
 if __name__ == '__main__':
     # # run the zero actions baseline
@@ -171,23 +170,36 @@ if __name__ == '__main__':
 
     # run the constant price baseline
     print('constant price heuristic')
-    cumulative_rewards, agent_names = run_heuristic(heuristic=constant_price_heuristic, config_name='GymIntegration_test')
-    #
-    non_median_indices = {}
-    for agent_name, agent_returns in zip(agent_names, cumulative_rewards):
-        print('agent: ', agent_name, ' median returns: ', np.median(agent_returns))
-        #     #find outliers in agent returns
-        non_median_agent_return_indices = np.where(agent_returns != np.median(agent_returns))[0]
-        if non_median_agent_return_indices.size == 0:
-            print('no outliers')
-            non_median_indices[agent_name] = []
-        else:
+    cumulative_rewards, agent_names, episode_steps = run_heuristic(heuristic=constant_price_heuristic, config_name='GymIntegration_test')
 
-            non_median_agent_returns = agent_returns[non_median_agent_return_indices]
-            print('non median returns: ', non_median_agent_returns, 'at indices: ', non_median_agent_return_indices)
-            non_median_indices[agent_name] = non_median_agent_return_indices
-        print('-----------------------')
-    print('done')
+    median_episode_length = np.median(episode_steps)
+    median_episode_lengh_percentage = (1-len(np.where(episode_steps != median_episode_length)[0])/len(episode_steps))*100
+    print('median episode length: ', median_episode_length, ' for ', median_episode_lengh_percentage, ' of the time')
+    non_median_episode_length_indices = np.where(episode_steps != median_episode_length)[0]
+
+    if non_median_episode_length_indices.size == 0:
+        non_median_episode_length_indices = np.array([0])
+        non_median_episode_lengths = None
+    else:
+        non_median_episode_lengths = episode_steps[non_median_episode_length_indices]
+        print('Discovered non_median_episode_lengths: ', non_median_episode_lengths, ' at positions: ', non_median_episode_length_indices)
+
+    agents_returns = {}
+    for agent_name, agent_returns in zip(agent_names, cumulative_rewards):
+        #     #find outliers in agent returns
+        agents_returns[agent_name] = {}
+        agent_returns = np.array(agent_returns)
+        median_agent_return = np.median(agent_returns)
+        median_agent_return_indices = np.where(agent_returns == median_agent_return)[0]
+        median_percentage = len(median_agent_return_indices)/len(agent_returns)
+
+        non_median_agent_return_indices = np.where(agent_returns != median_agent_return)[0]
+        non_median_agent_returns = agent_returns[non_median_agent_return_indices]
+
+        print('agent: ', agent_name, ' median returns: ', median_agent_return, 'at ', median_percentage, ' of the time')
+        print('non_median_agent_returns: ', non_median_agent_returns)
+        print('non_median_agent_return_indices: ', non_median_agent_return_indices)
+        print('------------------')
 
 
 
