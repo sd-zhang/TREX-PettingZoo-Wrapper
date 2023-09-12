@@ -8,6 +8,7 @@ import numpy as np
 import os
 import multiprocessing as mp
 import time
+import tenacity
 
 
 class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
@@ -110,7 +111,6 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
         agent_actions_decoded = {}
         for i, agent in enumerate(self.agent_mem_lists):
 
-
             agent_action = actions[i]
             #make sure agent action is a antive float
 
@@ -119,7 +119,6 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
                     agent_action = agent_action.tolist()
                 agent_action = [agent_action] if len(self.agent_action_translation[agent])== 1 else agent_action #reformat actions to match, might need to change for multidimensional action space
                 agent_action = [action_list[action] for action_list, action in zip(self.agent_action_translation[agent],agent_action)]
-
 
             #if continuous we don't need to do anything
             elif self.action_space_type == 'continuous':
@@ -132,18 +131,7 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
         # then we wait cycle over each agent's memorylist to tell us we can write
         # once we hit a 'can write' we write the action in
         # should_be_false_now = [self.agent_mem_lists[agent]['actions'][0] for agent in self.agent_mem_lists]
-        while all([self.agent_mem_lists[agent]['actions'][0] for agent in self.agent_mem_lists]):
-            time.sleep(0.01)
-            # should_be_false_now = [self.agent_mem_lists[agent]['actions'][0] for agent in self.agent_mem_lists]
-
-        # now that all past actions have been consumed, we can write the new actions
-        for i, agent in enumerate(self.agent_mem_lists):
-            agent_action = agent_actions_decoded[agent]
-            for j, action in enumerate(agent_action): #FixMe: for some reason slicing here doesnt want to work
-                self.agent_mem_lists[agent]['actions'][j+1] = action
-            self.agent_mem_lists[agent]['actions'][0] = True #set the can be read to true
-
-        assert all([self.agent_mem_lists[agent]['actions'][0] for agent in self.agent_mem_lists]), 'actions were not written correctly'
+        self.write_to_action_smls(agent_actions_decoded)
 
         # terminated:
         # this will need to be able to get set on the end of each generation
@@ -153,7 +141,6 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
         # Reward:
         # Rewards are going to have to be sent over from the gym trader, which will be able to
         # get information from the reward
-
         rewards = self._read_reward_values()
 
         # info:
@@ -167,6 +154,23 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
         truncated = None #FixMe: Make this do what it is supposed to I guess
 
         return obs, rewards, all(terminated), truncated,  info
+
+    def write_to_action_smls(self, agent_actions_decoded):
+        #we want alll agent flages to be false
+        while all([self.agent_mem_lists[agent]['actions'][0] for agent in self.agent_mem_lists]): #ToDo: this should be any, nno?
+            time.sleep(0.01)
+
+        # should_be_false_now = [self.agent_mem_lists[agent]['actions'][0] for agent in self.agent_mem_lists]
+        assert all([not self.agent_mem_lists[agent]['actions'][0] for agent in self.agent_mem_lists]), 'actions were not read ready'
+        # now that all past actions have been consumed, we can write the new actions
+        for i, agent in enumerate(self.agent_mem_lists):
+            agent_action = agent_actions_decoded[agent]
+            for j, action in enumerate(agent_action):
+                self.agent_mem_lists[agent]['actions'][j+1] = action
+            self.agent_mem_lists[agent]['actions'][0] = True #set the can be read to true
+
+        assert all([self.agent_mem_lists[agent]['actions'][0] for agent in self.agent_mem_lists]), 'actions were not written correctly'
+        return True
 
     def reset(self):
         '''
@@ -188,9 +192,7 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
         self._force_nonblocking_sml()
 
         # envs_reset = [self.controller_smls[env_id]['kill'][3] for env_id in self.controller_smls]
-        while all([self.controller_smls[env_id]['kill'][3] for env_id in self.controller_smls]):
-            time.sleep(0.01)
-            # envs_reset = [self.controller_smls[env_id]['kill'][3] for env_id in self.controller_smls]
+        self.wait_for_controller_smls()
 
         # print('done reset')
         self._reset_interprocess_memory()
@@ -201,6 +203,12 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
         obs = self._get_obs()
         info = {}
         return obs, info
+
+    def wait_for_controller_smls(self):
+        while all([self.controller_smls[env_id]['kill'][3] for env_id in self.controller_smls]):
+            time.sleep(0.01)
+            # envs_reset = [self.controller_smls[env_id]['kill'][3] for env_id in self.controller_smls]
+        return True
 
     def close(self):
         # gets rid of the smls
@@ -213,6 +221,15 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
         self._force_nonblocking_sml()
         # print('waiting for trex processes to die')
         # kill_signals_not_yet_read = [self.controller_smls[env_id]['kill'][1] for env_id in self.controller_smls] #should be set to false
+        self.wait_for_kill_smls()
+
+        self._close_agent_memlists()
+        self._close_controller_smls()
+
+        self.trex_pool.terminate()
+        self.terminated = True
+
+    def wait_for_kill_smls(self):
         while all([self.controller_smls[env_id]['kill'][1] for env_id in self.controller_smls]):
             time.sleep(0.01)
             # kill_signals_not_yet_read = []
@@ -220,12 +237,6 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
             #     signal_read = self.controller_smls[env_id]['kill'][1]
             #     kill_signals_not_yet_read.append(signal_read)
         # print('trex processes killed')
-
-        self._close_agent_memlists()
-        self._close_controller_smls()
-
-        self.trex_pool.terminate()
-        self.terminated = True
 
     def __startup_TREX_Core(self, config_name):
         #start the trex simulation and returns the multiprocessing pool object
@@ -464,7 +475,6 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
         """
         This method cycles through the mem lists of the agents until they all have all read the information.
         """
-
         self._obs = []
 
         # lets make sure all agent obs are ready to be read
@@ -492,7 +502,6 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
         This method cycles through the reward mem lists of the agents until they all have read the information.
         """
         rewards_t = []
-
 
         # agent_status = [self.agent_mem_lists[agent]['rewards'][0] for agent in self.agent_mem_lists] #We expect these to be True by now
         while not all([self.agent_mem_lists[agent]['rewards'][0] for agent in self.agent_mem_lists]):
