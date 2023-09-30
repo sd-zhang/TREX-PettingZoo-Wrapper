@@ -141,7 +141,7 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
         # Reward:
         # Rewards are going to have to be sent over from the gym trader, which will be able to
         # get information from the reward
-        rewards = self._read_reward_values()
+        rewards = self._get_rewards()
 
         # info:
         # Imma keep it as a open dictionary for now:
@@ -154,24 +154,6 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
         truncated = None #FixMe: Make this do what it is supposed to I guess
 
         return obs, rewards, all(terminated), truncated,  info
-
-    def write_to_action_smls(self, agent_actions_decoded):
-        #we want alll agent flages to be false
-        while any([self.agent_mem_lists[agent]['actions'][0] for agent in self.agent_mem_lists]): #ToDo: this should be any, nno?
-            time.sleep(0.01)
-
-        # should_be_false_now = [self.agent_mem_lists[agent]['actions'][0] for agent in self.agent_mem_lists]
-        assert not any([self.agent_mem_lists[agent]['actions'][0] for agent in self.agent_mem_lists]), 'actions were not read ready'
-        # now that all past actions have been consumed, we can write the new actions
-        for i, agent in enumerate(self.agent_mem_lists):
-            agent_action = agent_actions_decoded[agent]
-            for j, action in enumerate(agent_action):
-                self.agent_mem_lists[agent]['actions'][j+1] = action
-            self.agent_mem_lists[agent]['actions'][0] = True #set the can be read to true
-
-        assert all([self.agent_mem_lists[agent]['actions'][0] for agent in self.agent_mem_lists]), 'actions were not written correctly'
-        return True
-
     def reset(self):
         '''
         https://gymnasium.farama.org/api/env/#gymnasium.Env.reset
@@ -203,17 +185,6 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
         obs = self._get_obs()
         info = {}
         return obs, info
-
-    def wait_for_controller_smls(self):
-        # we need the 'kill'[3] to be false
-        # ToDo: technically this should be an any?
-        while any([self.controller_smls[env_id]['kill'][3] for env_id in self.controller_smls]):
-            time.sleep(0.01)
-            # envs_reset = [self.controller_smls[env_id]['kill'][3] for env_id in self.controller_smls]
-        # we'd expect them to be false now
-        assert not any([self.controller_smls[env_id]['kill'][3] for env_id in self.controller_smls]), 'reset flag was not reset'
-        return True
-
     def close(self):
         # gets rid of the smls
         # print('WARNING: this might be unreliable ATM, check that the processes are actually killed!')
@@ -232,6 +203,117 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
 
         self.trex_pool.terminate()
         self.terminated = True
+
+    @tenacity.retry(wait=tenacity.wait_fixed(0.01)
+                          + tenacity.wait_random(0, 0.01),
+                    )
+    def write_to_action_smls(self, agent_actions_decoded):
+        #we want alll agent flages to be false
+        # print('waiting to write action smls')
+        if any([self.agent_mem_lists[agent]['actions'][0] for agent in self.agent_mem_lists]): #ToDo: this should be any, nno?
+            raise tenacity.TryAgain
+        else:
+            # print('writing to action smls')
+            # should_be_false_now = [self.agent_mem_lists[agent]['actions'][0] for agent in self.agent_mem_lists]
+            assert not any([self.agent_mem_lists[agent]['actions'][0] for agent in self.agent_mem_lists]), 'actions were not read ready'
+            # now that all past actions have been consumed, we can write the new actions
+            for i, agent in enumerate(self.agent_mem_lists):
+                agent_action = agent_actions_decoded[agent]
+                for j, action in enumerate(agent_action):
+                    self.agent_mem_lists[agent]['actions'][j+1] = action
+                self.agent_mem_lists[agent]['actions'][0] = True #set the can be read to true
+
+            assert all([self.agent_mem_lists[agent]['actions'][0] for agent in self.agent_mem_lists]), 'actions were not written correctly'
+            # print('done writing to action smls')
+            return True
+
+    def _get_obs(self):
+
+        """
+        This gets the full observation state for that timestep.
+        Only call explicitly for T==0 and for testing purposes!
+
+        :return: a single list that contains all the agents individual observations as lists:
+        [agent1_obs_list, agent2_obs_list, ..., agentn_obs_list
+
+        """
+        #FixMe: this is an epymarl leftover and will need to be removed at some point
+
+        # in the lbf this simply returns self._obs
+        # self._obs is populated in env.step, but the values are pulled before the next
+        # steps
+        self._read_obs_smls()
+        return self._obs
+    @tenacity.retry(wait=tenacity.wait_fixed(0.01)
+                          + tenacity.wait_random(0, 0.01),
+                    )
+    def _read_obs_smls(self):
+        """
+        This method cycles through the mem lists of the agents until they all have all read the information.
+        """
+
+
+        # lets make sure all agent obs are ready to be read
+        # agent_status = [self.agent_mem_lists[agent]['obs'][0] for agent in self.agent_mem_lists]
+        # #We expect these to be True by now, if some are false we retry
+        # print('waiting to read obs smls')
+        if not all([self.agent_mem_lists[agent]['obs'][0] for agent in self.agent_mem_lists]):
+            raise tenacity.TryAgain
+        else:
+            self._obs = []
+            #after having made sure all are true, we can read the values
+            # print('reading obs smls')
+            for i, agent_name in enumerate(self.agent_mem_lists):
+            # agent is a dictionary 'obs', 'actions', 'rewards'
+
+                agent_obs = [self.agent_mem_lists[agent_name]['obs'][j] for j in range(1,len(self.agent_mem_lists[agent_name]['obs']))] #get the values, THIS SEEMS TO WORK WITH SHAREABLE LISTS SO THIS IS WHAT WE DO
+                self._obs.append(agent_obs)
+                self.agent_mem_lists[agent_name]['obs'][0] = False #Set flag to false, obs were read and are ready to be written again
+
+            assert all([self.agent_mem_lists[agent]['obs'][0] for agent in self.agent_mem_lists]) == False, 'all agent obs should be read by now and ready to be written'
+            # print('self._obs after', self._obs)
+            # print('read obs smls')
+            return True
+
+    def _get_rewards(self):
+        self._read_reward_smls()
+        return self._rewards
+    @tenacity.retry(wait=tenacity.wait_fixed(0.01)
+                          + tenacity.wait_random(0, 0.01),
+                    )
+    def _read_reward_smls(self):
+        """
+        This method cycles through the reward mem lists of the agents until they all have read the information.
+        """
+
+        # print('waiting to read reward smls')
+        # agent_status = [self.agent_mem_lists[agent]['rewards'][0] for agent in self.agent_mem_lists] #We expect these to be True by now
+        if not all([self.agent_mem_lists[agent]['rewards'][0] for agent in self.agent_mem_lists]):
+            raise tenacity.TryAgain
+        else:
+            self._rewards = []
+            # print('reading reward smls')
+            for i, agent_name in enumerate(self.agent_mem_lists):
+                self._rewards.append(self.agent_mem_lists[agent_name]['rewards'][1])
+                self.agent_mem_lists[agent_name]['rewards'][0] = False #Set flag to false, obs were read
+
+            assert all([self.agent_mem_lists[agent]['rewards'][0] for agent in self.agent_mem_lists]) == False, 'all agent rewards should be read by now and ready to be written'
+
+            self._rewards = [float(reward) if reward is not None else np.nan for reward in self._rewards]
+
+            return True
+        # print('read reward smls')
+
+    def wait_for_controller_smls(self):
+        # we need the 'kill'[3] to be false
+        # ToDo: technically this should be an any?
+        while any([self.controller_smls[env_id]['kill'][3] for env_id in self.controller_smls]):
+            time.sleep(0.01)
+            # envs_reset = [self.controller_smls[env_id]['kill'][3] for env_id in self.controller_smls]
+        # we'd expect them to be false now
+        assert not any([self.controller_smls[env_id]['kill'][3] for env_id in self.controller_smls]), 'reset flag was not reset'
+        return True
+
 
     def wait_for_kill_smls(self):
         # we just set this to true, and need to wait for them to be false again
@@ -479,52 +561,8 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
             self.agent_mem_lists[agent]['actions'][0] = False
             self.agent_mem_lists[agent]['obs'][0] = True
             self.agent_mem_lists[agent]['rewards'][0] = True
-    def _read_obs_values(self):
-        """
-        This method cycles through the mem lists of the agents until they all have all read the information.
-        """
-        self._obs = []
-
-        # lets make sure all agent obs are ready to be read
-        # agent_status = [self.agent_mem_lists[agent]['obs'][0] for agent in self.agent_mem_lists]
-        # #We expect these to be True by now, if some are false we retry
-        while not all([self.agent_mem_lists[agent]['obs'][0] for agent in self.agent_mem_lists]):
-            time.sleep(0.01)  # wait for 1ms
-            # try:
-            #     agent_status = [self.agent_mem_lists[agent]['obs'][0] for agent in self.agent_mem_lists]
-            # except:
-            #     pass
-        #after having made sure all are true, we can read the values
-        for i, agent_name in enumerate(self.agent_mem_lists):
-        # agent is a dictionary 'obs', 'actions', 'rewards'
-
-            agent_obs = [self.agent_mem_lists[agent_name]['obs'][j] for j in range(1,len(self.agent_mem_lists[agent_name]['obs']))] #get the values, THIS SEEMS TO WORK WITH SHAREABLE LISTS SO THIS IS WHAT WE DO
-            self._obs.append(agent_obs)
-            self.agent_mem_lists[agent_name]['obs'][0] = False #Set flag to false, obs were read and are ready to be written again
-
-        assert all([self.agent_mem_lists[agent]['obs'][0] for agent in self.agent_mem_lists]) == False, 'all agent obs should be read by now and ready to be written'
-        # print('self._obs after', self._obs)
 
 
-    def _read_reward_values(self):
-        """
-        This method cycles through the reward mem lists of the agents until they all have read the information.
-        """
-        rewards_t = []
-
-        # agent_status = [self.agent_mem_lists[agent]['rewards'][0] for agent in self.agent_mem_lists] #We expect these to be True by now
-        while not all([self.agent_mem_lists[agent]['rewards'][0] for agent in self.agent_mem_lists]):
-            time.sleep(0.01)
-            # agent_status = [self.agent_mem_lists[agent]['rewards'][0] for agent in self.agent_mem_lists]
-
-        for i, agent_name in enumerate(self.agent_mem_lists):
-            rewards_t.append(self.agent_mem_lists[agent_name]['rewards'][1])
-            self.agent_mem_lists[agent_name]['rewards'][0] = False #Set flag to false, obs were read
-
-        assert all([self.agent_mem_lists[agent]['rewards'][0] for agent in self.agent_mem_lists]) == False, 'all agent rewards should be read by now and ready to be written'
-
-        rewards_t = [float(reward) if reward is not None else np.nan for reward in rewards_t]
-        return rewards_t
 
     def get_avail_actions(self):
         """
@@ -547,22 +585,4 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
         avail_actions = [ACTIONS] *self.n_agents
 
         return avail_actions
-
-    def _get_obs(self):
-
-        """
-        This gets the full observation state for that timestep.
-        Only call explicitly for T==0 and for testing purposes!
-
-        :return: a single list that contains all the agents individual observations as lists:
-        [agent1_obs_list, agent2_obs_list, ..., agentn_obs_list
-
-        """
-        #FixMe: this is an epymarl leftover and will need to be removed at some point
-
-        # in the lbf this simply returns self._obs
-        # self._obs is populated in env.step, but the values are pulled before the next
-        # steps
-        self._read_obs_values()
-        return self._obs
 

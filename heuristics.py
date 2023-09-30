@@ -1,6 +1,10 @@
 from trexenv import TrexEnv
 import numpy as np
-
+import os
+import tensorboard as tb
+import tensorflow as tf
+import datetime
+import shutil
 '''The goal of this piece of code is to show how to:
     - launch the TREX-core (our digityal twin)
     - launch the TREX-gym env - connect the env to the subprocess
@@ -30,19 +34,33 @@ def constant_price_heuristic(action_space, price=0.11, **kwargs):
     for agent_idx, agent_name in enumerate(agent_obs_keys):
         agent_obs = obs[agent_idx]
         load_index = agent_obs_keys[agent_name].index('load_settle')
+        load_demand = agent_obs[load_index]
         generation_index = agent_obs_keys[agent_name].index('generation_settle')
+        generation = agent_obs[generation_index]
         battery_index = agent_action_keys[agent_name].index('storage')
+        battery = agent_obs[battery_index]
 
         #calculate the net load at t_settle
-        net_load = agent_obs[load_index] - agent_obs[generation_index]
+        net_load = load_demand - generation + battery
 
-        if 'storage' in agent_action_keys[agent_name]:
-            actions[agent_idx][battery_index] = 0 #net_load
+        # if netload is positive, we sell:
+        if net_load > 0:
+            # set quantity to netload
+            price_bid_index = agent_action_keys[agent_name].index('price_bid')
+            quantity_bid_index = agent_action_keys[agent_name].index('quantity_bid')
+            actions[agent_idx][price_bid_index] = price
+            actions[agent_idx][quantity_bid_index] = net_load
+        elif net_load < 0:
+            # set quantity to negative netload
+            price_ask_index = agent_action_keys[agent_name].index('price_ask')
+            quantity_ask_index = agent_action_keys[agent_name].index('quantity_ask')
+            actions[agent_idx][price_ask_index] = price
+            actions[agent_idx][quantity_ask_index] = -net_load
 
         else:
             pass #we dont bid or ask anything
 
-
+    # print('actions in heuristic: {}'.format(actions), flush=True)
     return actions
 
 def greedy_battery_management_heuristic(action_space, **kwargs):
@@ -76,7 +94,40 @@ def greedy_battery_management_heuristic(action_space, **kwargs):
         # print('agent {} battery goal: {}'.format(agent_name, battery_goal), flush=True)
     return actions
 
+
+def add_to_obs_histograms(obs_histogram_info, obs_t, agents_obs_keys, agent_names):
+    for agent_idx, agent_name in enumerate(agent_names):
+        if agent_name not in obs_histogram_info.keys():
+            obs_histogram_info[agent_name] = {}
+
+        for obs_index, obs_key in enumerate(agents_obs_keys[agent_name]):
+            if obs_key not in obs_histogram_info[agent_name].keys():
+                obs_histogram_info[agent_name][obs_key] = []
+
+            a_o_t = obs_t[agent_idx][obs_index]
+
+            if a_o_t is not None:
+                obs_histogram_info[agent_name][obs_key].append(a_o_t)
+
+    # print(obs_t[agent_idx])
+
+    return obs_histogram_info
+
+
 def run_heuristic(heuristic, config_name='GymIntegration_test', action_space_type='continuous', **kwargs):
+    if 'summary_writer' in kwargs:
+        summary_writer = kwargs['summary_writer']
+
+        logging = True
+
+        if 'obs_histograms' in kwargs:
+            obs_histogram_info = {}
+            obs_histogram = True
+        else:
+            obs_histogram = False
+    else:
+        logging = False
+
     kwargs = {'action_space_type': action_space_type,  # discrete or continuous
               'action_space_entries': 30}  # if discrete, we need to know how many quantitizations we want between the min and max defined in the config file
 
@@ -94,10 +145,12 @@ def run_heuristic(heuristic, config_name='GymIntegration_test', action_space_typ
     episode_length = trex_env.episode_length # this is the length of the episode, also defined in the config
     n_agents = trex_env.n_agents  # because agents are defined in the config
 
-    episodes = 20# we can also get treex_env.episode_limit, which is the number of episodes defined in the config
+    episodes = 5# we can also get treex_env.episode_limit, which is the number of episodes defined in the config
     cumulative_rewards = [[] for _ in range(n_agents)]
     episode_steps = []
     for episode in range(episodes):
+        if obs_histogram:
+            obs_histogram_info = {}
         obs, info = trex_env.reset()  # this should print out a warning. The reset only resets stuff internally in the gym env, it does not reset the connected TREX-core sim. Steven should be on this but it's not high priority atm
         steps = 0
         terminated = False
@@ -116,6 +169,7 @@ def run_heuristic(heuristic, config_name='GymIntegration_test', action_space_typ
             # for agent, action in enumerate(actions):
             #    print('agent: ', agent, ' action: ', action, flush=True)
             obs, reward, terminated, truncated, info = trex_env.step(actions)
+            obs_histogram_info = add_to_obs_histograms(obs_histogram_info, obs, agents_obs_keys, agent_names)
             for agent, agent_reward in enumerate(reward):
                 if agent_reward == agent_reward: #testing for a nan
                     episode_cumulative_reward[agent] += agent_reward
@@ -128,10 +182,39 @@ def run_heuristic(heuristic, config_name='GymIntegration_test', action_space_typ
             # print('reward: ', reward, flush=True)
             # if terminated:
             #    print('done at step: ', steps, 'expected to be at', episode_length, flush=True)
+            # if we're logging, log all the interesting info using tensorboard
+            if logging:
+                with summary_writer.as_default():
+                    for agent_reward_index, agent in enumerate(agent_names):
+                        a_r_t = reward[agent_reward_index]
+                        tf.summary.scalar('agent_{}_reward'.format(agent), a_r_t, step=steps)
+
+                        tf.summary.scalar('agent_{}_steps'.format(agent), steps, step=steps)
+
+                    summary_writer.flush()
+
             steps += 1
+
         for agent, agent_reward in enumerate(episode_cumulative_reward):
             cumulative_rewards[agent].append(agent_reward)
             episode_steps.append(steps)
+
+        if logging:
+
+            if obs_histogram:
+                with summary_writer.as_default():
+                    agent_names = trex_env.get_agent_names()
+                    for obs_key in agents_obs_keys[agent_names[0]]: #Important: this assumes every agent has the same obs keys
+
+                        #plot the obs that the agents dont share for each agent
+                        if obs_key in ["generation_now", "load_now",  "generation_settle", "load_settle", "SoC"]:
+                            for agent_name in agent_names:
+                                tf.summary.histogram('obs_{}_agent_{}'.format(obs_key, agent_name), obs_histogram_info[agent_name][obs_key], step=episode)
+                        else: #these are obs that are shared
+                            tf.summary.histogram('obs_{}'.format(obs_key), obs_histogram_info[agent_names[0]][obs_key], step=episode)
+                    summary_writer.flush()
+
+            summary_writer.flush()
 
     # print('simulation done, closing env')
     trex_env.close()  # ATM it is necessary to do this as LAST step!
@@ -159,7 +242,15 @@ if __name__ == '__main__':
 
     # run the constant price baseline
     print('constant price heuristic')
-    cumulative_rewards, agent_names, episode_steps = run_heuristic(heuristic=constant_price_heuristic, config_name='GymIntegration_test')
+    cwd = os.getcwd()
+    logdir = os.path.join(cwd, 'logs', datetime.datetime.now().strftime("%Y%m%d-%H%M%S"))
+    # check if dir exists, if it exists delete it and remake
+    if os.path.exists(logdir):
+        shutil.rmtree(logdir)
+    os.makedirs(logdir)
+    summary_writer = tf.summary.create_file_writer(logdir)
+
+    cumulative_rewards, agent_names, episode_steps = run_heuristic(heuristic=constant_price_heuristic, config_name='GymIntegration_test', summary_writer=summary_writer, obs_histograms=True)
 
     median_episode_length = np.median(episode_steps)
     median_episode_lengh_percentage = (1-len(np.where(episode_steps != median_episode_length)[0])/len(episode_steps))*100
