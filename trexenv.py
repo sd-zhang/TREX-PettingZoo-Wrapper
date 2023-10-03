@@ -304,29 +304,34 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
             return True
         # print('read reward smls')
 
+    @tenacity.retry(wait=tenacity.wait_fixed(0.01) + tenacity.wait_random(0, 0.01), )
     def wait_for_controller_smls(self):
         # we need the 'kill'[3] to be false
         # ToDo: technically this should be an any?
-        while any([self.controller_smls[env_id]['kill'][3] for env_id in self.controller_smls]):
-            time.sleep(0.01)
+        if any([self.controller_smls[env_id]['kill'][3] for env_id in self.controller_smls]):
+            raise tenacity.TryAgain
+        else:
             # envs_reset = [self.controller_smls[env_id]['kill'][3] for env_id in self.controller_smls]
         # we'd expect them to be false now
-        assert not any([self.controller_smls[env_id]['kill'][3] for env_id in self.controller_smls]), 'reset flag was not reset'
-        return True
+            assert not any([self.controller_smls[env_id]['kill'][3] for env_id in self.controller_smls]), 'reset flag was not reset'
+            return True
 
 
+    @tenacity.retry(wait=tenacity.wait_fixed(0.01) + tenacity.wait_random(0, 0.01),)
     def wait_for_kill_smls(self):
         # we just set this to true, and need to wait for them to be false again
         # kill_signals_not_yet_read = [self.controller_smls[env_id]['kill'][1] for env_id in self.controller_smls] #should be set to false
-        while any([self.controller_smls[env_id]['kill'][1] for env_id in self.controller_smls]):
-            time.sleep(0.01)
+        if any([self.controller_smls[env_id]['kill'][1] for env_id in self.controller_smls]):
+            return tenacity.TryAgain
             # kill_signals_not_yet_read = []
             # for env_id in self.controller_smls:
             #     signal_read = self.controller_smls[env_id]['kill'][1]
             #     kill_signals_not_yet_read.append(signal_read)
         # print('trex processes killed')
         # make sure theyre all fallse nnow
-        assert not any([self.controller_smls[env_id]['kill'][1] for env_id in self.controller_smls]), 'kill flag was not reset'
+        else:
+            assert not any([self.controller_smls[env_id]['kill'][1] for env_id in self.controller_smls]), 'kill flag was not reset'
+            return True
 
     def __startup_TREX_Core(self, config_name):
         #start the trex simulation and returns the multiprocessing pool object
