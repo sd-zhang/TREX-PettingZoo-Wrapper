@@ -6,17 +6,18 @@ import numpy as np
     - launch the TREX-gym env - connect the env to the subprocess
     - do some basic interactions with the env
     '''
-def random_heuristic(action_space, **kwargs):
-    actions = action_space.sample()
-    return list(actions)
+# def random_heuristic(action_space, **kwargs):
+#     actions = action_space.sample()
+#     return list(actions)
 
 #ToDo: important note, this does NOT check wether the action space can actually use 0s
-def zero_heuristic(action_space, **kwargs):
-    action_sample = action_space.sample()
-    actions = [np.zeros_like(agent_action_space) for agent_action_space in action_sample]
+def zero_heuristic(action_spaces, **kwargs):
+    zero_actions = {}
+    for agent in action_spaces:
+        zero_actions[agent] = np.zeros_like(action_spaces[agent].sample())
 
-    return actions
-def constant_price_heuristic(action_space, price=0.11, **kwargs):
+    return zero_actions
+def constant_price_heuristic(action_spaces, price=0.11, **kwargs):
     assert 'agents_action_keys' in kwargs.keys(), 'this heuristic needs to know the names of the actions, please provide agents_action_keys'
     assert 'agents_obs_keys' in kwargs.keys(), 'this heuristic needs to know the names of the observations, please provide agents_obs_keys'
     assert 'obs' in kwargs.keys(), 'this heuristic needs to know the observations, please provide obs'
@@ -25,19 +26,20 @@ def constant_price_heuristic(action_space, price=0.11, **kwargs):
     agent_obs_keys = kwargs['agents_obs_keys']
     agent_action_keys = kwargs['agents_action_keys']
     #get 0 actions
-    zero_actions = zero_heuristic(action_space)
+    zero_actions = zero_heuristic(action_spaces)
     actions = zero_actions.copy()
-    for agent_idx, agent_name in enumerate(agent_obs_keys):
-        agent_obs = obs[agent_idx]
+    for agent_name in action_spaces:
+        agent_obs = obs[agent_name]
         load_index = agent_obs_keys[agent_name].index('load_settle')
         generation_index = agent_obs_keys[agent_name].index('generation_settle')
+
         battery_index = agent_action_keys[agent_name].index('storage')
 
         #calculate the net load at t_settle
         net_load = agent_obs[load_index] - agent_obs[generation_index]
 
         if 'storage' in agent_action_keys[agent_name]:
-            actions[agent_idx][battery_index] = 0 #net_load
+            actions[agent_name][battery_index] = -net_load
 
         else:
             pass #we dont bid or ask anything
@@ -86,25 +88,25 @@ def run_heuristic(heuristic, config_name='GymIntegration_test', action_space_typ
     # ToDo: push observation keys
     # ToDo: add SoC to the observation space
     # bid ask spread: range between highest bid price and lowest ask price
-    agent_names = trex_env.get_agent_names()  # this is a list of the names for each agent
+    agent_names = trex_env.agents  # this is a list of the names for each agent
     agents_action_keys = trex_env.get_action_keys()  # this is a list of the names for each agent's actions
-    agents_action_spaces = trex_env.get_action_spaces()  # this is a dict of the action spaces for each agent
+    agents_action_spaces = trex_env.action_spaces  # this is a dict of the action spaces for each agent
     agents_obs_keys = trex_env.get_obs_keys()  # this is a list of the names for each agent's observations
-    agents_obs_spaces = trex_env.get_obs_spaces()  # this is a dict of the observation spaces for each agent
+    agents_obs_spaces = trex_env.observation_spaces  # this is a dict of the observation spaces for each agent
     episode_length = trex_env.episode_length # this is the length of the episode, also defined in the config
-    n_agents = trex_env.n_agents  # because agents are defined in the config
+    num_agents = trex_env.num_agents  # because agents are defined in the config
 
     episodes = 20# we can also get treex_env.episode_limit, which is the number of episodes defined in the config
-    cumulative_rewards = [[] for _ in range(n_agents)]
+    agents_episode_returns = {agent_name: [] for agent_name in agent_names}
     episode_steps = []
     for episode in range(episodes):
         obs, info = trex_env.reset()  # this should print out a warning. The reset only resets stuff internally in the gym env, it does not reset the connected TREX-core sim. Steven should be on this but it's not high priority atm
         steps = 0
         terminated = False
-        episode_cumulative_reward = [0 for _ in range(n_agents)]
+        episode_cumulative_reward = {agent_name: 0 for agent_name in agent_names}
         while not terminated:
             # query the policy
-            actions = heuristic(action_space=trex_env.action_space,
+            actions = heuristic(action_spaces=trex_env.action_spaces,
                                 agents_action_keys=agents_action_keys,
                                 obs=obs,
                                 agents_obs_keys=agents_obs_keys)  # this is a list of actions, one for each agent
@@ -115,8 +117,11 @@ def run_heuristic(heuristic, config_name='GymIntegration_test', action_space_typ
             # print('actions: ', actions, flush=True)
             # for agent, action in enumerate(actions):
             #    print('agent: ', agent, ' action: ', action, flush=True)
-            obs, reward, terminated, truncated, info = trex_env.step(actions)
-            for agent, agent_reward in enumerate(reward):
+            obs, reward, terminateds, truncated, info = trex_env.step(actions)
+            terminated = [terminateds[agent] for agent in terminateds.keys()]
+            terminated = all(terminated)
+            for agent in reward:
+                agent_reward = reward[agent]
                 if agent_reward == agent_reward: #testing for a nan
                     episode_cumulative_reward[agent] += agent_reward
             # Disclaimer: Rewards at the first 2 steps of an episode are nans, because the market settles for 1 step ahead.
@@ -129,14 +134,15 @@ def run_heuristic(heuristic, config_name='GymIntegration_test', action_space_typ
             # if terminated:
             #    print('done at step: ', steps, 'expected to be at', episode_length, flush=True)
             steps += 1
-        for agent, agent_reward in enumerate(episode_cumulative_reward):
-            cumulative_rewards[agent].append(agent_reward)
+        for agent in episode_cumulative_reward:
+            agent_return = episode_cumulative_reward[agent]
+            agents_episode_returns[agent].append(agent_return)
             episode_steps.append(steps)
 
     # print('simulation done, closing env')
     trex_env.close()  # ATM it is necessary to do this as LAST step!
 
-    return cumulative_rewards, agent_names, episode_steps
+    return agents_episode_returns, agent_names, episode_steps
 
 if __name__ == '__main__':
     # # run the zero actions baseline
@@ -159,7 +165,7 @@ if __name__ == '__main__':
 
     # run the constant price baseline
     print('constant price heuristic')
-    cumulative_rewards, agent_names, episode_steps = run_heuristic(heuristic=constant_price_heuristic, config_name='GymIntegration_test')
+    agents_episode_returns, agent_names, episode_steps = run_heuristic(heuristic=constant_price_heuristic, config_name='GymIntegration_test')
 
     median_episode_length = np.median(episode_steps)
     median_episode_lengh_percentage = (1-len(np.where(episode_steps != median_episode_length)[0])/len(episode_steps))*100
@@ -173,17 +179,17 @@ if __name__ == '__main__':
         non_median_episode_lengths = episode_steps[non_median_episode_length_indices]
         print('Discovered non_median_episode_lengths: ', non_median_episode_lengths, ' at positions: ', non_median_episode_length_indices)
 
-    agents_returns = {}
-    for agent_name, agent_returns in zip(agent_names, cumulative_rewards):
-        #     #find outliers in agent returns
-        agents_returns[agent_name] = {}
-        agent_returns = np.array(agent_returns)
-        median_agent_return = np.median(agent_returns)
-        median_agent_return_indices = np.where(agent_returns == median_agent_return)[0]
-        median_percentage = len(median_agent_return_indices)/len(agent_returns)
 
-        non_median_agent_return_indices = np.where(agent_returns != median_agent_return)[0]
-        non_median_agent_returns = agent_returns[non_median_agent_return_indices]
+    for agent_name in agents_episode_returns:
+
+        #     #find outliers in agent returns
+        agent_episode_returns = np.array(agents_episode_returns[agent_name])
+        median_agent_return = np.median(agent_episode_returns)
+        median_agent_return_indices = np.where(agent_episode_returns == median_agent_return)[0]
+        median_percentage = len(median_agent_return_indices)/len(agent_episode_returns)
+
+        non_median_agent_return_indices = np.where(agent_episode_returns != median_agent_return)[0]
+        non_median_agent_returns = agent_episode_returns[non_median_agent_return_indices]
 
         print('agent: ', agent_name, ' median returns: ', median_agent_return, 'at ', median_percentage, ' of the time')
         print('non_median_agent_returns: ', non_median_agent_returns)

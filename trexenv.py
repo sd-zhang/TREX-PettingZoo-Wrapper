@@ -9,12 +9,15 @@ import os
 import multiprocessing as mp
 import time
 import tenacity
+import pettingzoo as pz
 
 
-class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
+class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth else?
     """
 
     """
+    metadata = {}
+
     def __init__(self,
                  config_name=None, #ToDo: add a default here
                  run_name=hash(os.times()) % 100, #ToDo: add a default here
@@ -38,17 +41,13 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
         del runner
         os.chdir(cur_dir)
 
-
-        # get the n agents from the config:
-        self.n_agents = 0
-        for agent in self.config['participants']:
-            if self.config['participants'][agent]['trader']['type'] == 'gym_agent':
-                self.n_agents += 1
-        assert self.n_agents > 0, 'There are no gym_agents in the config, please pick a config with at least 1 gym_agent'
-
         #set up agent names
-        self.agent_names = [agent for agent in self.config['participants'] if
-                            self.config['participants'][agent]['trader']['type'] == 'gym_agent']
+        self.agents = [agent for agent in self.config['participants'] if self.config['participants'][agent]['trader']['type'] == 'gym_agent']
+        # self.num_agents = len(self.agents) might be an attribute thats auto set
+        assert self.num_agents > 0, 'There are no gym_agents in the config, please pick a config with at least 1 gym_agent'
+
+        self.possible_agents = self.agents #change if that ever becomes a thing
+        # self.max_num_agents = self.num_agents #might be an autoset attribute
 
         # set up general env variables
         self.episode_length = int(np.floor(self.config['study']['days'] * 24 * 60 * 60 / self.config['study']['time_step_size']) + 1) #Because the length of an episode is given by the config
@@ -60,7 +59,6 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
             print('setting seed to', kwargs['seed'], 'BEWARE that this is not fully enforced yet!')
 
         self.terminated = False
-        self._obs = []
         self.agent_obs_array = {} #holds the observations of each agent
         self.agent_action_array = {} #holds the action types of each agent
 
@@ -93,7 +91,7 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
         return False
 
     def step(self, actions):
-        #ToDo: put some info about how to get action shape shit here
+        #ToDo: change this to process an action dict of the form {agent_name: action}
         '''
         https://gymnasium.farama.org/api/env/#gymnasium.Env.step
         :return Obs, reward (list of floats), terminated (bool), truncated (bool), info (dict)
@@ -109,9 +107,9 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
 
         # first we decode the actions for each agent
         agent_actions_decoded = {}
-        for i, agent in enumerate(self.agent_mem_lists):
+        for i, agent in enumerate(self.agents):
 
-            agent_action = actions[i]
+            agent_action = actions[agent]
             #make sure agent action is a antive float
 
             if self.action_space_type == 'discrete':
@@ -130,13 +128,11 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
 
         # then we wait cycle over each agent's memorylist to tell us we can write
         # once we hit a 'can write' we write the action in
-        # should_be_false_now = [self.agent_mem_lists[agent]['actions'][0] for agent in self.agent_mem_lists]
+        # should_be_false_now = [self.agent_mem_lists[agent]['actions'][0] for agent in self.agents]
         self.write_to_action_smls(agent_actions_decoded)
 
         # terminated:
         # this will need to be able to get set on the end of each generation
-        terminated = [True]*self.n_agents if self.t_env_steps >= self.episode_length else [False]*self.n_agents
-        self.t_env_steps += 1
 
         # Reward:
         # Rewards are going to have to be sent over from the gym trader, which will be able to
@@ -145,16 +141,25 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
 
         # info:
         # Imma keep it as a open dictionary for now:
-        info = {}
-        info['rewards'] = {agent: rewards[i] for i, agent in enumerate(self.agent_names)}  # include the rewards individually for each agent
-        info['terminated'] = {agent: terminated[i] for i, agent in enumerate(self.agent_names)} #include terminated for each agent
+        infos = {}
+        for agent in self.agents:
+            infos[agent] = {}
+        # info['rewards'] = {agent: rewards[i] for i, agent in enumerate(self.agents)}  # include the rewards individually for each agent
+        # info['terminated'] = {agent: terminated[i] for i, agent in enumerate(self.agents)} #include terminated for each agent
 
         obs = self._get_obs()
 
-        truncated = None #FixMe: Make this do what it is supposed to I guess
+        terminateds = {}
+        truncateds = {}
+        for agent in self.agents:
+            terminateds[agent] =  True if self.t_env_steps >= self.episode_length else False
+            truncateds[agent] = False
 
-        return obs, rewards, all(terminated), truncated,  info
-    def reset(self):
+        self.t_env_steps += 1
+
+        return obs, rewards, terminateds, truncateds,  infos
+
+    def reset(self, seed=None, **kwargs):
         '''
         https://gymnasium.farama.org/api/env/#gymnasium.Env.reset
         This method resets the trex environment.
@@ -183,8 +188,12 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
         self.t_env_steps = 0
         self.episode_current += 1
         obs = self._get_obs()
-        info = {}
-        return obs, info
+        infos = {}
+        for agent in self.agents:
+            infos[agent] = {}
+
+        return obs, infos
+
     def close(self):
         # gets rid of the smls
         # print('WARNING: this might be unreliable ATM, check that the processes are actually killed!')
@@ -203,6 +212,16 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
 
         self.trex_pool.terminate()
         self.terminated = True
+
+    def state(self):
+        '''
+        returns the current state of the environment
+        '''
+        state = []
+        for agent in self.agents:
+            state.expand(self._obs[agent])
+
+        return np.array(state)
 
     @tenacity.retry(wait=tenacity.wait_fixed(0.01)
                           + tenacity.wait_random(0, 0.01),
@@ -260,14 +279,14 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
         if not all([self.agent_mem_lists[agent]['obs'][0] for agent in self.agent_mem_lists]):
             raise tenacity.TryAgain
         else:
-            self._obs = []
+            self._obs = {}
             #after having made sure all are true, we can read the values
             # print('reading obs smls')
             for i, agent_name in enumerate(self.agent_mem_lists):
             # agent is a dictionary 'obs', 'actions', 'rewards'
 
                 agent_obs = [self.agent_mem_lists[agent_name]['obs'][j] for j in range(1,len(self.agent_mem_lists[agent_name]['obs']))] #get the values, THIS SEEMS TO WORK WITH SHAREABLE LISTS SO THIS IS WHAT WE DO
-                self._obs.append(agent_obs)
+                self._obs[agent_name] = agent_obs
                 self.agent_mem_lists[agent_name]['obs'][0] = False #Set flag to false, obs were read and are ready to be written again
 
             assert all([self.agent_mem_lists[agent]['obs'][0] for agent in self.agent_mem_lists]) == False, 'all agent obs should be read by now and ready to be written'
@@ -291,15 +310,15 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
         if not all([self.agent_mem_lists[agent]['rewards'][0] for agent in self.agent_mem_lists]):
             raise tenacity.TryAgain
         else:
-            self._rewards = []
+            self._rewards = {}
             # print('reading reward smls')
             for i, agent_name in enumerate(self.agent_mem_lists):
-                self._rewards.append(self.agent_mem_lists[agent_name]['rewards'][1])
+                agent_reward = self.agent_mem_lists[agent_name]['rewards'][1]
+                assert agent_reward == agent_reward, 'agent reward is nan of some type!'
+                self._rewards[agent_name] = agent_reward
                 self.agent_mem_lists[agent_name]['rewards'][0] = False #Set flag to false, obs were read
 
             assert all([self.agent_mem_lists[agent]['rewards'][0] for agent in self.agent_mem_lists]) == False, 'all agent rewards should be read by now and ready to be written'
-
-            self._rewards = [float(reward) if reward is not None else np.nan for reward in self._rewards]
 
             return True
         # print('read reward smls')
@@ -371,48 +390,26 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
 
         del self.agent_mem_lists
         print('closed agent smls')
-    def get_agent_names(self):
-        return self.agent_names
-
-    def get_state_size(self):
-        """
-        This method is required for gym
-        This method gets the size of the state global state used by get_env_info
-        Global state is the individual agents state multiplied by the number of agents.
-        :return:
-        The size of the state information is a single int
-        """
-        state_size = int(self.observation_space[-1].shape[0]) * self.n_agents
-        # print("State size ", state_size)
-        return state_size
 
     def get_action_keys(self):
         return self.agent_action_array
 
     def get_obs_keys(self):
         return self.agent_obs_array
-    def get_obs_spaces(self):
-        """
-        THIS METHOD IS REQUIRED FOR GYM
-        This method returns the size of each individual agents observation space, assuming homogenous observation spaces!
-        FixMe: this is an epymarl leftover and will need to be adjusted at some point
-        """
-        agent_obs_spaces = {}
-        for i, agent in enumerate(self.agent_mem_lists):
-            agent_obs_spaces[agent] = self.observation_space[i]
-        return agent_obs_spaces
 
-    def get_action_spaces(self):
+    def observation_space(self, agent):
         """
-        THIS IS REQUIRED FFOR GYM
-        Returns the total number of actions that an agent could ever take, assuming homogenous observation spaces!
-        FixMe: this is an epymarl leftover and will need to be adjusted at some point
-        :return:
+        THIS METHOD IS REQUIRED FOR PettingZoo
+        return the obs space for the agent
         """
-        agents_action_space = {}
-        for i, agent in enumerate(self.agent_mem_lists):
-            agents_action_space[agent] = self.action_space[i]
-        return agents_action_space
+        return self.observation_spaces[agent]
+
+    def action_space(self, agent):
+        """
+        takes agent id, returns agent action space
+        """
+
+        return self.action_spaces[agent]
 
     def ping(self):
         print('sucessfully pinged TREX env', self.env_ids, flush=True)
@@ -427,18 +424,19 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
         # ToDo: Separate into _setup_action_spaces
         # ToDo: then change action spaces to be able to be multidimensional
 
+        self.observation_spaces = {}
         for agent in self.config['participants']:
             if self.config['participants'][agent]['trader']['type'] == 'gym_agent':
                 try:
                     self.agent_obs_array[agent] = self.config['participants'][agent]['trader']['observations']
                 except:
                     print('There was a problem loading the config observations')
-        obs_list = [spaces.Box(low=-np.inf, high=np.inf, shape=(len(obs),)) for obs in self.agent_obs_array.values()]
-        obs_tuple = tuple(obs_list)
-        self.observation_space = spaces.Tuple(obs_tuple)
+                num_agent_obs = len(self.agent_obs_array[agent])
+                agent_obs_space = spaces.Box(low=-np.inf, high=np.inf, shape=(num_agent_obs,))
+                self.observation_spaces[agent] = agent_obs_space
 
 
-        agent_action_spaces = []
+        self.action_spaces = {}
         if self.action_space_type == 'discrete':
             self.agent_action_translation = {}
 
@@ -472,11 +470,11 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
                     print('Action space type not recognized:', self.action_space_type)
                     raise NotImplementedError
 
-                agent_action_spaces.append(agent_action_space)
+                self.action_spaces[agent] = agent_action_space
                 # except:
                 #    print("there was a problem loading the actions")
 
-        self.action_space = spaces.Tuple(tuple(agent_action_spaces))
+
 
     def _setup_interprocess_memory(self):
         """
@@ -506,47 +504,46 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
 
 
         self.agent_mem_lists = {}
-        for agent in self.config['participants']:
-            if self.config['participants'][agent]['trader']['type'] == 'gym_agent':
-                self.agent_mem_lists[agent] = {}
-                # this is where we set up the shared memory object, each agent needs 2 objects actions, observations
-                # todo: November 21 2022; for parallel runner there will need to be extra identifiers for sharelists to remain unique
-                actions_name = agent +'_' + str(self.env_ids[env_nbr])+'_actions'
-                # print('trex-env: ', 'env_id', self.env_ids[env_nbr], 'actions_name:', actions_name, flush=True)
-                obs_name = agent +'_' + str(self.env_ids[env_nbr])+'_obs'
-                # print('trex-env: ','env_id', self.env_ids[env_nbr], 'obs_name:', obs_name, flush=True)
-                reward_name = agent+'_'+str(self.env_ids[env_nbr])+'_reward'
-                # print('trex-env: ','env_id', self.env_ids[env_nbr], 'reward_name:', reward_name, flush=True)
+        for agent in self.agents:
+            self.agent_mem_lists[agent] = {}
+            # this is where we set up the shared memory object, each agent needs 2 objects actions, observations
+            # todo: November 21 2022; for parallel runner there will need to be extra identifiers for sharelists to remain unique
+            actions_name = agent +'_' + str(self.env_ids[env_nbr])+'_actions'
+            # print('trex-env: ', 'env_id', self.env_ids[env_nbr], 'actions_name:', actions_name, flush=True)
+            obs_name = agent +'_' + str(self.env_ids[env_nbr])+'_obs'
+            # print('trex-env: ','env_id', self.env_ids[env_nbr], 'obs_name:', obs_name, flush=True)
+            reward_name = agent+'_'+str(self.env_ids[env_nbr])+'_reward'
+            # print('trex-env: ','env_id', self.env_ids[env_nbr], 'reward_name:', reward_name, flush=True)
 
-                # Flattened gym spaces. Actions are like this:
-                length_of_obs = len(self.agent_obs_array[agent]) + 1
-                length_of_actions = len(self.agent_action_array[agent]) + 1
+            # Flattened gym spaces. Actions are like this:
+            length_of_obs = len(self.agent_obs_array[agent]) + 1
+            length_of_actions = len(self.agent_action_array[agent]) + 1
 
-                # all smls have the follwing convention:
-                # [0]: ready to be read if True, ready to be written if False
-                # [1:]: the values
-                try:
-                    actions_list = shared_memory.ShareableList([0.0]*length_of_actions, name=actions_name)
-                except:
-                    print('found ', actions_name,' already in memory, attaching onto it.')
-                    actions_list = shared_memory.ShareableList(name=actions_name)
-                self.agent_mem_lists[agent]['actions'] = actions_list
-                # print(actions_name, flush=True)
+            # all smls have the follwing convention:
+            # [0]: ready to be read if True, ready to be written if False
+            # [1:]: the values
+            try:
+                actions_list = shared_memory.ShareableList([0.0]*length_of_actions, name=actions_name)
+            except:
+                print('found ', actions_name,' already in memory, attaching onto it.')
+                actions_list = shared_memory.ShareableList(name=actions_name)
+            self.agent_mem_lists[agent]['actions'] = actions_list
+            # print(actions_name, flush=True)
 
-                try:
-                    obs_list = shared_memory.ShareableList([0.0]*length_of_obs, name=obs_name)
-                except:
-                    print('found ', obs_name,' already in memory, attaching onto it.')
-                    obs_list = shared_memory.ShareableList(name=obs_name)
-                self.agent_mem_lists[agent]['obs'] = obs_list
-                # print(obs_name, flush=True)
-                try:
-                    reward_list = shared_memory.ShareableList([0.0, 0.0], name=reward_name)
-                except:
-                    print('found ', reward_name,' already in memory, attaching onto it.')
-                    reward_list = shared_memory.ShareableList(name=reward_name)
-                self.agent_mem_lists[agent]['rewards'] = reward_list
-                # print(reward_name, flush=True)
+            try:
+                obs_list = shared_memory.ShareableList([0.0]*length_of_obs, name=obs_name)
+            except:
+                print('found ', obs_name,' already in memory, attaching onto it.')
+                obs_list = shared_memory.ShareableList(name=obs_name)
+            self.agent_mem_lists[agent]['obs'] = obs_list
+            # print(obs_name, flush=True)
+            try:
+                reward_list = shared_memory.ShareableList([0.0, 0.0], name=reward_name)
+            except:
+                print('found ', reward_name,' already in memory, attaching onto it.')
+                reward_list = shared_memory.ShareableList(name=reward_name)
+            self.agent_mem_lists[agent]['rewards'] = reward_list
+            # print(reward_name, flush=True)
 
         self._reset_interprocess_memory()
 
@@ -568,26 +565,4 @@ class TrexEnv: #ToDo: make this inherit from PettingZoo or sth else?
             self.agent_mem_lists[agent]['rewards'][0] = True
 
 
-
-    def get_avail_actions(self):
-        """
-        #FixMe: needs fxing for the new action space
-        This method will return a list of list that gives the available actions
-        return: avail_actions -> list of [1]* n_agents
-
-        """
-        # For now, all actions are availiable at all time
-        agent_action_space = self.action_space[-1]
-        if self.action_space_type == 'continuous':
-            action_space_shape = agent_action_space.shape
-        elif self.action_space_type == 'discrete':
-            action_space_shape = agent_action_space.n
-        else:
-            print('did not recognize action space type', self.action_space_type)
-            raise NotImplementedError
-
-        ACTIONS = [1]*action_space_shape
-        avail_actions = [ACTIONS] *self.n_agents
-
-        return avail_actions
 
