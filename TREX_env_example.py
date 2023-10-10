@@ -30,16 +30,27 @@ def constant_price_heuristic(action_spaces, price=0.11, **kwargs):
     actions = zero_actions.copy()
     for agent_name in action_spaces:
         agent_obs = obs[agent_name]
-        load_index = agent_obs_keys[agent_name].index('load_settle')
-        generation_index = agent_obs_keys[agent_name].index('generation_settle')
+        if 'netload_settle' in agent_obs_keys[agent_name]:
+            netload_index = agent_obs_keys[agent_name].index('netload_settle')
 
-        battery_index = agent_action_keys[agent_name].index('storage')
 
-        #calculate the net load at t_settle
-        net_load = agent_obs[load_index] - agent_obs[generation_index]
+            #calculate the net load at t_settle
+            net_load = agent_obs[netload_index]
 
         if 'storage' in agent_action_keys[agent_name]:
-            actions[agent_name][battery_index] = -net_load
+            battery_index = agent_action_keys[agent_name].index('storage')
+            actions[agent_name][battery_index] = -net_load # is this plus or minus wtfff
+
+            # with market as it is rn
+            # -184.89653141618794 if we have -netload
+            # -196.98436221187004 if we have 0
+            # -227.97362733931115 if we have +netload
+
+            #without market:
+            # -199.96346385228966 if we have -netload
+            # -203.96876306085755 if we have 0
+            # -240.42732582533657 if we have +netload
+
 
         else:
             pass #we dont bid or ask anything
@@ -89,17 +100,17 @@ def run_heuristic(heuristic, config_name='GymIntegration_test', action_space_typ
     # ToDo: add SoC to the observation space
     # bid ask spread: range between highest bid price and lowest ask price
     agent_names = trex_env.agents  # this is a list of the names for each agent
-    agents_action_keys = trex_env.get_action_keys()  # this is a list of the names for each agent's actions
+    agents_action_keys = trex_env.agent_action_array  # this is a list of the names for each agent's actions
     agents_action_spaces = trex_env.action_spaces  # this is a dict of the action spaces for each agent
-    agents_obs_keys = trex_env.get_obs_keys()  # this is a list of the names for each agent's observations
+    agents_obs_keys = trex_env.agents_obs_names  # this is a list of the names for each agent's observations
     agents_obs_spaces = trex_env.observation_spaces  # this is a dict of the observation spaces for each agent
     episode_length = trex_env.episode_length # this is the length of the episode, also defined in the config
     num_agents = trex_env.num_agents  # because agents are defined in the config
 
-    episodes = 20# we can also get treex_env.episode_limit, which is the number of episodes defined in the config
+    episodes = 2# we can also get treex_env.episode_limit, which is the number of episodes defined in the config
     agents_episode_returns = {agent_name: [] for agent_name in agent_names}
     episode_steps = []
-    for episode in range(episodes):
+       for episode in range(episodes):
         obs, info = trex_env.reset()  # this should print out a warning. The reset only resets stuff internally in the gym env, it does not reset the connected TREX-core sim. Steven should be on this but it's not high priority atm
         steps = 0
         terminated = False
@@ -179,12 +190,13 @@ if __name__ == '__main__':
         non_median_episode_lengths = episode_steps[non_median_episode_length_indices]
         print('Discovered non_median_episode_lengths: ', non_median_episode_lengths, ' at positions: ', non_median_episode_length_indices)
 
-
+    mean_returns = []
     for agent_name in agents_episode_returns:
 
         #     #find outliers in agent returns
         agent_episode_returns = np.array(agents_episode_returns[agent_name])
         median_agent_return = np.median(agent_episode_returns)
+        mean_returns.append(median_agent_return)
         median_agent_return_indices = np.where(agent_episode_returns == median_agent_return)[0]
         median_percentage = len(median_agent_return_indices)/len(agent_episode_returns)
 
@@ -196,26 +208,4 @@ if __name__ == '__main__':
         print('non_median_agent_return_indices: ', non_median_agent_return_indices)
         print('------------------')
 
-
-
-
-
-
-
-# battery heuristic
-# agent:  Building_1  mean bill:  -102.14451931514002
-# agent:  Building_2  mean bill:  -78.99161397492999
-# agent:  Building_3  mean bill:  -91.31732216039995
-# agent:  Building_4  mean bill:  -66.94351313042999
-
-# #random baseline
-# agent:  Building_1  mean bill:  -102.11894510222668
-# agent:  Building_2  mean bill:  -85.12669829586336
-# agent:  Building_3  mean bill:  -97.32864160179668
-# agent:  Building_4  mean bill:  -75.81927020421999
-
-# zero actions
-# agent:  Building_1  mean bill:  -91.35787152011999
-# agent:  Building_2  mean bill:  -71.00918475999008
-# agent:  Building_3  mean bill:  -84.09825423030003
-# agent:  Building_4  mean bill:  -58.89945161796002
+    print('Overall Median Returns: ', np.mean(mean_returns))
