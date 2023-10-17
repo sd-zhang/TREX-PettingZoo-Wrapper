@@ -10,8 +10,9 @@ import multiprocessing as mp
 import time
 import tenacity
 import pettingzoo as pz
-from stable_baselines3.common.running_mean_std import RunningMeanStd
+from mathutils import RunningMeanStdMinMax
 
+#ToDo: check how we're fucking up the reset, we're overflowing 2h?
 
 class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth else?
     """
@@ -23,6 +24,9 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
                  config_name=None, #ToDo: add a default here
                  run_name=hash(os.times()) % 100, #ToDo: add a default here
                  normalize_obs=False,
+                 normalize_rewards=False,
+                 action_space_type='continuous', #continuous or discrete
+                    action_space_entries=None, #only applicable if we have discrete actions
                  **kwargs):
         """
         This method initializes the environment and sets up the action and observation spaces
@@ -51,7 +55,8 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
         self.possible_agents = self.agents #change if that ever becomes a thing
         # self.max_num_agents = self.num_agents #might be an autoset attribute
 
-        self.use_obs_normalizer = normalize_obs
+        self.normalize_obs = normalize_obs
+        self.normalize_rewards = normalize_rewards
         # set up general env variables
         self.episode_length = int(np.floor(self.config['study']['days'] * 24 * 60 * 60 / self.config['study']['time_step_size']) + 1) #Because the length of an episode is given by the config
         self.episode_limit = int(np.floor(self.config['study']['generations'])) #number of max episodes
@@ -65,10 +70,10 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
         self.agent_action_array = {} #holds the action types of each agent
 
         # set up spaces
-        self.action_space_type = kwargs['action_space_type']
+        self.action_space_type = action_space_type
         if self.action_space_type == 'discrete':
-            assert 'action_space_entries' in kwargs, 'action_space_entries must be specified in the environment yaml for discrete action space'
-            self.action_space_entries = kwargs['action_space_entries']
+            assert isinstance(action_space_entries, int), 'action_space_entries must be specified in the environment yaml for discrete action space'
+            self.action_space_entries = action_space_entries
         self._setup_spaces()
 
         # set up env_id for the memory lists, etc
@@ -112,12 +117,12 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
         for i, agent in enumerate(self.agents):
 
             agent_action = actions[agent]
-            #make sure agent action is a antive float
-            if agent_action > self.agents_max_actions[agent]:
-                self.agents_max_actions[agent] = agent_action
-            elif agent_action < self.agents_min_actions[agent]:
-                self.agents_min_actions[agent] = agent_action
 
+            #log maxes and mins
+            if agent_action > self.max_storage:
+                self.max_storage = agent_action
+            if agent_action < self.min_storage:
+                self.min_storage = agent_action
 
             if self.action_space_type == 'discrete':
                 if isinstance(actions[i], np.ndarray):
@@ -150,7 +155,8 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
         # Imma keep it as a open dictionary for now:
         infos = {}
         for agent in self.agents:
-            infos[agent] = {'max_action': self.agents_max_actions[agent], 'min_action': self.agents_min_actions[agent]}
+            infos[agent] = dict()
+            # infos[agent]['unscaled_rewards'] = self.unscaled_rewards[agent]
         # info['rewards'] = {agent: rewards[i] for i, agent in enumerate(self.agents)}  # include the rewards individually for each agent
         # info['terminated'] = {agent: terminated[i] for i, agent in enumerate(self.agents)} #include terminated for each agent
 
@@ -179,6 +185,14 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
         #resetting the memlists to be sure nothing gets fucked up here
         # reset the simulation to next gen
 
+
+
+        if not hasattr(self, 'max_storage'):
+            self.max_storage = -np.inf
+            self.min_storage = np.inf
+        else:
+            print(self.max_storage, self.min_storage)
+
         for env_id in self.env_ids:
             assert self.controller_smls[env_id]['kill'][2] == 'reset', 'reset section not found in envcontroller sml'
             self.controller_smls[env_id]['kill'][3] = True #set the reset flag
@@ -204,9 +218,8 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
         self.agents_max_actions = {}
         self.agents_min_actions = {}
         for agent in self.agents:
-            self.agents_max_actions[agent] = 0.0
-            self.agents_min_actions[agent] = 0.0
-            infos[agent] = {'max_action': self.agents_max_actions[agent], 'min_action': self.agents_min_actions[agent]}
+            infos[agent] = dict()
+            # infos[agent]['unscaled_rewards'] = 0
 
         return obs, infos
 
@@ -277,9 +290,7 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
         # self._obs is populated in env.step, but the values are pulled before the next
         # steps
         self._read_obs_smls()
-        if self.use_obs_normalizer:
-            self._obs = self._scale_obs(self._obs)
-        return self._obs
+        return self._scale_obs(self._obs) if self.normalize_obs else self._obs
     @tenacity.retry(wait=tenacity.wait_fixed(0.01)
                           + tenacity.wait_random(0, 0.01),
                     )
@@ -303,7 +314,7 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
             # agent is a dictionary 'obs', 'actions', 'rewards'
 
                 agent_obs = [self.agent_mem_lists[agent_name]['obs'][j] for j in range(1,len(self.agent_mem_lists[agent_name]['obs']))] #get the values, THIS SEEMS TO WORK WITH SHAREABLE LISTS SO THIS IS WHAT WE DO
-                self._obs[agent_name] = agent_obs
+                self._obs[agent_name] = np.expand_dims(agent_obs, axis=0)
                 self.agent_mem_lists[agent_name]['obs'][0] = False #Set flag to false, obs were read and are ready to be written again
 
             assert all([self.agent_mem_lists[agent]['obs'][0] for agent in self.agent_mem_lists]) == False, 'all agent obs should be read by now and ready to be written'
@@ -322,22 +333,72 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
             agent_0 = self.agents[0]
             agent_0_obs_names = self.agents_obs_names[self.agents[0]]
             assert all([agent_0_obs_names == self.agents_obs_names[agent] for agent in self.agents]), 'obs spaces are not the same for all agents'
-            #create the running mean and std
             obs_shape = self.observation_spaces[agent_0].shape
-            self.obs_rms = RunningMeanStd(shape=obs_shape)
+
+            obs_names = self.agents_obs_names[agent_0]
+            #for all the obs where we know the maxes and mins, we force them here:
+            obs_forced_max = []
+            obs_forced_min = []
+            for obs_name in obs_names:
+                if 'price' in obs_name:
+                    obs_forced_max.append(0.1449) #ToDo: make sure this is right, and maybe autoupdate?
+                    obs_forced_min.append(0.069)
+                elif 'SoC' in obs_name:
+                    obs_forced_max.append(1.0)
+                    obs_forced_min.append(0.0)
+                elif 'load' in obs_name:
+                    obs_forced_max.append(None) #ToDo: log the value and put it in here
+                    obs_forced_min.append(None)
+                elif 'generation' in obs_name:
+                    obs_forced_max.append(None) #ToDo: log the value and put it in here
+                    obs_forced_min.append(None)
+                elif 'netload' in obs_name:
+                    obs_forced_max.append(None) #ToDo: log the value and put it in here
+                    obs_forced_min.append(None)
+                else:
+                    obs_forced_max.append(None)
+                    obs_forced_min.append(None)
+
+            self.obs_rms = RunningMeanStdMinMax(shape=obs_shape, forced_maxes=np.array(obs_forced_max), forced_mins=np.array(obs_forced_min))
         #update the running mean and std
+
         for agent in self.agents:
-            self.obs_rms.update(np.array(obs[agent]))
+            expaned_obs = np.expand_dims(np.array(obs[agent]), axis=0)
+            self.obs_rms.update(expaned_obs)
 
         #clip obs for all agents
         for agent in self.agents:
             agent_obs = np.array(obs[agent])
-            obs[agent] = (agent_obs - self.obs_rms.mean) / np.sqrt(self.obs_rms.var + 1e-6)
+            scaled_agent_obs = (agent_obs - self.obs_rms.mean) / np.sqrt(self.obs_rms.var + 1e-8)
+            obs[agent] = scaled_agent_obs
 
         return obs
+    def _scale_rewards(self, rewards):
+        """
+        This method scales rewards using a running mean and std
+        """
+
+        if not hasattr(self, 'rewards_rms'):
+            self.rewards_rms = RunningMeanStdMinMax(shape=())
+
+        #update the running mean and std
+        for agent in self.agents:
+            agent_rewards = np.expand_dims(np.array(rewards[agent]), axis=0)
+            self.rewards_rms.update(agent_rewards)
+
+        #clip rewards
+        self.unscaled_rewards = rewards
+        for agent in self.agents:
+            agent_rewards = np.expand_dims(np.array(rewards[agent]), axis=0)
+            scaled_agent_rewards = agent_rewards / np.sqrt(self.rewards_rms.var + 1e-8)
+            scaled_agent_rewards = np.squeeze(scaled_agent_rewards, axis=0)
+            rewards[agent] = scaled_agent_rewards
+
+        return rewards
+
     def _get_rewards(self):
         self._read_reward_smls()
-        return self._rewards
+        return self._scale_rewards(self._rewards) if self.normalize_rewards else self._rewards
     @tenacity.retry(wait=tenacity.wait_fixed(0.01)
                           + tenacity.wait_random(0, 0.01),
                     )
@@ -404,7 +465,7 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
         for trex_launch_list in augmented_launch_lists:
             new_launch_list.extend(trex_launch_list)
 
-        pool_size = int(mp.cpu_count()-3)  # Adjust based on needs
+        pool_size = int(mp.cpu_count()-5)  # Adjust based on needs
         pool = mp.Pool(processes=pool_size)
         trex_results = pool.map_async(run_subprocess, new_launch_list)  # this launches the TREX-Core sim in a non-blocking fashion (so it runs in the background)
         pool.close()
@@ -471,7 +532,7 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
                 except:
                     print('There was a problem loading the config observations')
                 num_agent_obs = len(self.agents_obs_names[agent])
-                agent_obs_space = spaces.Box(low=-np.inf, high=np.inf, shape=(num_agent_obs,))
+                agent_obs_space = spaces.Box(low=-np.inf, high=np.inf, shape=(1, num_agent_obs,))
                 self.observation_spaces[agent] = agent_obs_space
 
 

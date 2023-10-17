@@ -38,18 +38,31 @@ def constant_price_heuristic(action_spaces, price=0.11, **kwargs):
             net_load = agent_obs[netload_index]
 
         if 'storage' in agent_action_keys[agent_name]:
+            SoC_index = agent_obs_keys[agent_name].index('SoC')
+            SoC = agent_obs[SoC_index]
+            # print('agent {} has SoC {}'.format(agent_name, SoC))
             battery_index = agent_action_keys[agent_name].index('storage')
-            actions[agent_name][battery_index] = -net_load # is this plus or minus wtfff
+            actions[agent_name][battery_index] = 0 #-net_load # is this plus or minus wtfff
 
-            # with market as it is rn
-            # -184.89653141618794 if we have -netload
-            # -196.98436221187004 if we have 0
-            # -227.97362733931115 if we have +netload
 
-            #without market:
-            # -199.96346385228966 if we have -netload
-            # -203.96876306085755 if we have 0
-            # -240.42732582533657 if we have +netload
+
+            # for 10 houses
+            # no market                                 mean rewards for each episode:  [-6.90361558 -6.98649693 -6.98649693 -6.98649693 -6.98649693] (3 days)
+            # market, grid rewards, newbat logic        mean rewards for each episode:  [-6.90612964 -6.98901099 -6.98901099 -6.98901099 -6.98901099] (3 days)
+            # market, grid equivalent, simplemarket     mean rewards for each episode:  [-6.90910239 -6.99198374 -6.99198374 -6.99198374 -6.99198374] (3 days)
+
+            # no market                                 quantities bought:              [55562.59688 56134.58691 56134.58691 56134.58691 56134.58691] (3 days)
+            # market                                    quantities bought:              [55608.75353 56180.74356 56180.74356 56180.74356 56180.74356] (3 days)
+
+            # no market:                                quantities bought:              [5936.03232 5936.03232 5936.03232 5936.03232 5936.03232] (1 step)
+            # market:                                   quantities bought:              [5417.199   5936.03232 5936.03232 5936.03232 5936.03232] (1 step)
+
+            # no market:                                quantities bought:              [6807.99066 7290.57566 7290.57566 7290.57566 7290.57566] (2 step)
+            # market:                                   quantities bought:              [6818.30899 7300.89399 7300.89399 7300.89399 7300.89399] (2 step)
+
+            # difference between gen0 and gen1: -571.9900300000008 (except for no market 1 step?!) --> some wierd ass resetting issue? we're dropping something OR we're losing sth?
+            # difference between no market and market: -46.15665000000445 (for 3 days) and -10.31832999999915 for 2steps
+
 
 
         else:
@@ -90,10 +103,8 @@ def greedy_battery_management_heuristic(action_space, **kwargs):
     return actions
 
 def run_heuristic(heuristic, config_name='GymIntegration_test', action_space_type='continuous', **kwargs):
-    kwargs = {'action_space_type': action_space_type,  # discrete or continuous
-              'action_space_entries': 30}  # if discrete, we need to know how many quantitizations we want between the min and max defined in the config file
-
-    trex_env = TrexEnv(config_name=config_name, **kwargs)
+    env_args = dict(config_name=config_name, action_space_type=action_space_type, action_space_entries=None)
+    trex_env = TrexEnv(**env_args)
 
     # getting some useful stuff from the environmentxham
     # ToDo: push observation keys
@@ -107,10 +118,13 @@ def run_heuristic(heuristic, config_name='GymIntegration_test', action_space_typ
     episode_length = trex_env.episode_length # this is the length of the episode, also defined in the config
     num_agents = trex_env.num_agents  # because agents are defined in the config
 
-    episodes = 2# we can also get treex_env.episode_limit, which is the number of episodes defined in the config
+    episodes = 5# we can also get treex_env.episode_limit, which is the number of episodes defined in the config
     agents_episode_returns = {agent_name: [] for agent_name in agent_names}
     episode_steps = []
-       for episode in range(episodes):
+    max_sin = 0
+    min_sin = 0
+
+    for episode in range(episodes):
         obs, info = trex_env.reset()  # this should print out a warning. The reset only resets stuff internally in the gym env, it does not reset the connected TREX-core sim. Steven should be on this but it's not high priority atm
         steps = 0
         terminated = False
@@ -129,6 +143,16 @@ def run_heuristic(heuristic, config_name='GymIntegration_test', action_space_typ
             # for agent, action in enumerate(actions):
             #    print('agent: ', agent, ' action: ', action, flush=True)
             obs, reward, terminateds, truncated, info = trex_env.step(actions)
+
+            if 'yeartime_sin' in agents_obs_keys[agent_names[0]]:
+                sin_index = agents_obs_keys[agent_names[0]].index('yeartime_sin')
+                sin = obs[agent_names[0]][sin_index]
+                # if sin > max_sin:
+                #     print('max_sin: ', sin)
+                #     max_sin = sin
+                # elif sin < min_sin:
+                #     print('min sin:', sin)
+                #     min_sin = sin
             terminated = [terminateds[agent] for agent in terminateds.keys()]
             terminated = all(terminated)
             for agent in reward:
@@ -145,6 +169,7 @@ def run_heuristic(heuristic, config_name='GymIntegration_test', action_space_typ
             # if terminated:
             #    print('done at step: ', steps, 'expected to be at', episode_length, flush=True)
             steps += 1
+
         for agent in episode_cumulative_reward:
             agent_return = episode_cumulative_reward[agent]
             agents_episode_returns[agent].append(agent_return)
@@ -196,16 +221,16 @@ if __name__ == '__main__':
         #     #find outliers in agent returns
         agent_episode_returns = np.array(agents_episode_returns[agent_name])
         median_agent_return = np.median(agent_episode_returns)
-        mean_returns.append(median_agent_return)
+        mean_returns.append(agent_episode_returns)
         median_agent_return_indices = np.where(agent_episode_returns == median_agent_return)[0]
         median_percentage = len(median_agent_return_indices)/len(agent_episode_returns)
 
         non_median_agent_return_indices = np.where(agent_episode_returns != median_agent_return)[0]
         non_median_agent_returns = agent_episode_returns[non_median_agent_return_indices]
 
-        print('agent: ', agent_name, ' median returns: ', median_agent_return, 'at ', median_percentage, ' of the time')
-        print('non_median_agent_returns: ', non_median_agent_returns)
-        print('non_median_agent_return_indices: ', non_median_agent_return_indices)
+        print('agent: ', agent_name, 'episode returns: ', agent_episode_returns)
         print('------------------')
 
-    print('Overall Median Returns: ', np.mean(mean_returns))
+    print('Mean Returns per episode: ', np.mean(mean_returns, axis=0))
+
+    print('Overall Mean Returns: ', np.mean(mean_returns))
