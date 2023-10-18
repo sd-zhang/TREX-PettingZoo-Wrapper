@@ -31,18 +31,26 @@ def constant_price_heuristic(action_spaces, price=0.11, **kwargs):
     for agent_name in action_spaces:
         agent_obs = obs[agent_name]
         if 'netload_settle' in agent_obs_keys[agent_name]:
-            netload_index = agent_obs_keys[agent_name].index('netload_settle')
-
-
+            netload_settle_index = agent_obs_keys[agent_name].index('netload_settle')
             #calculate the net load at t_settle
-            net_load = agent_obs[netload_index]
+            netload_settle = agent_obs[netload_settle_index]
+
+        if 'netload_now' in agent_obs_keys[agent_name]:
+            netload_now_index = agent_obs_keys[agent_name].index('netload_now')
+            #calculate the net load at t_settle
+            netload_now = agent_obs[netload_now_index]
+
+        if 'netload_deliver' in agent_obs_keys[agent_name]:
+            netload_deliver_index = agent_obs_keys[agent_name].index('netload_deliver')
+            #calculate the net load at t_settle
+            netload_deliver = agent_obs[netload_deliver_index]
 
         if 'storage' in agent_action_keys[agent_name]:
             SoC_index = agent_obs_keys[agent_name].index('SoC')
             SoC = agent_obs[SoC_index]
             # print('agent {} has SoC {}'.format(agent_name, SoC))
             battery_index = agent_action_keys[agent_name].index('storage')
-            actions[agent_name][battery_index] = 0 #-net_load # is this plus or minus wtfff
+            actions[agent_name][battery_index] = -netload_deliver/3000
 
 
 
@@ -118,7 +126,7 @@ def run_heuristic(heuristic, config_name='GymIntegration_test', action_space_typ
     episode_length = trex_env.episode_length # this is the length of the episode, also defined in the config
     num_agents = trex_env.num_agents  # because agents are defined in the config
 
-    episodes = 5# we can also get treex_env.episode_limit, which is the number of episodes defined in the config
+    episodes = 2# we can also get treex_env.episode_limit, which is the number of episodes defined in the config
     agents_episode_returns = {agent_name: [] for agent_name in agent_names}
     episode_steps = []
     max_sin = 0
@@ -201,7 +209,7 @@ if __name__ == '__main__':
 
     # run the constant price baseline
     print('constant price heuristic')
-    agents_episode_returns, agent_names, episode_steps = run_heuristic(heuristic=constant_price_heuristic, config_name='GymIntegration_test')
+    agents_episode_returns, agent_names, episode_steps = run_heuristic(heuristic=constant_price_heuristic, config_name='Consistencytest')
 
     median_episode_length = np.median(episode_steps)
     median_episode_lengh_percentage = (1-len(np.where(episode_steps != median_episode_length)[0])/len(episode_steps))*100

@@ -7,6 +7,7 @@ from supersuit.vector.sb3_vector_wrapper import SB3VecEnvWrapper
 from pettingzoo.test import parallel_api_test
 import datetime
 from sb3_contrib import RecurrentPPO
+from stable_baselines3.common.distributions import SquashedDiagGaussianDistribution
 from stable_baselines3.common.evaluation import evaluate_policy
 from stable_baselines3.common.callbacks import EvalCallback
 from stable_baselines3.common.vec_env import VecNormalize, VecMonitor, VecFrameStack
@@ -19,7 +20,7 @@ from gymnasium.wrappers import FrameStack, NormalizeObservation
 # test if the quantities line uo - battery charge and netloads, etc...
 
 if "__main__" == __name__:  # this is needed to make sure the code is not executed when imported
-    config_name = "GymIntegration_test"
+    config_name = "Consistencytest"
 
     current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     tboard_logdir = f"runs/{current_time}"
@@ -36,76 +37,51 @@ if "__main__" == __name__:  # this is needed to make sure the code is not execut
     trex_env = SB3VecEnvWrapper(trex_env)
     num_envs = trex_env.num_envs
     print('number of pseudo envs', num_envs)
-    trex_env = VecNormalize(trex_env, norm_obs=True, norm_reward=False, clip_obs=np.inf, clip_reward=np.inf, gamma=0.99,
-                 epsilon=1e-08)
+    # trex_env = VecNormalize(trex_env, norm_obs=True, norm_reward=False, clip_obs=np.inf, clip_reward=np.inf, gamma=0.99,
+    #             epsilon=1e-08)
     # trex_env = VecFrameStack(trex_env, n_stack=5)
 
     unnormalized_env = VecMonitor(trex_env, filename=tboard_logdir) #can add extra arguments to monitor in info keywords, look up https://stable-baselines3.readthedocs.io/en/master/_modules/stable_baselines3/common/vec_env/vec_monitor.html
-    final_env = VecNormalize(unnormalized_env, norm_obs=False, norm_reward=True, clip_obs=np.inf, clip_reward=np.inf, gamma=0.99, epsilon=1e-08)
-    final_env = VecFrameStack(final_env, n_stack=12, channels_order='first')
+    final_env = VecNormalize(unnormalized_env, norm_obs=True, norm_reward=True, clip_obs=np.inf, clip_reward=np.inf, gamma=0.99, epsilon=1e-08)
+    # final_env = VecFrameStack(final_env, n_stack=12, channels_order='first')
     # trex_env = ss.concat_vec_envs_v1(trex_env, 1, base_class="stable_baselines3")
 
 
     # trex_env = ss.vector.markov_vector_wrapper.MarkovVectorEnv(trex_env)
     # get current time to add to tensoboard logdic
 
-    #set up SAC
-
-    policy_dict = dict(log_std_init=0.0,
-                       # squash_output=True,
-                       )
-    # model = sb3.PPO('MlpPolicy',
-    #                 final_env,
-    #                 verbose=0,
-    #                 tensorboard_log=tboard_logdir,
-    #                 device="cuda",
-    #                 n_epochs=40,
-    #                 max_grad_norm=1.0,
-    #                 # target_kl=0.04,
-    #                 n_steps=int(2048/num_envs),
-    #                 batch_size=64,
-    #                 stats_window_size=1,
-    #                 ent_coef=0.00,
-    #                 policy_kwargs=policy_dict,
-    #                 )
-    model = sb3.SAC('MlpPolicy',
-                    final_env,
-                    verbose=0,
-                    tensorboard_log=tboard_logdir,
-                    device="cuda",
-
-                    # replay_buffer_class=HerReplayBuffer,
-                    # buffer_size=num_envs * 24 * 100,
-                    # replay_buffer_kwargs=dict(n_sampled_goal=4, goal_selection_strategy='future'),
-                    # batch_size=256,
-                    learning_starts=24*100,
-                    # train_freq=1,
-                    # target_update_interval=1,
-                    # ent_coef='auto',
-                    # target_entropy='auto',
-                    policy_kwargs=policy_dict,
-                    stats_window_size=1,
-                    )
-    # model = RecurrentPPO('MlpLstmPolicy',
-    #                      trex_env,
-    #                      verbose=0,
-    #                      use_sde=True,
-    #                      tensorboard_log=tboard_logdir,
-    #                      device="cuda",
-    #                      n_epochs=40,
-    #                      target_kl=0.04,
-    #                      n_steps=trex_env.num_envs * 128,
-    #                      stats_window_size=1,
-    #                      ent_coef=0.00,
-    #                      policy_kwargs=policy_dict,
-    #                      batch_size=128)
-    eval_callback = EvalCallback(eval_env=final_env,
-                                 best_model_save_path="models/",
-                                 log_path=tboard_logdir, n_eval_episodes=1,
-                                 eval_freq= 10*24*100, deterministic=True, render=False)
+    #set up Recurrent PPO
+    obs_space = final_env.observation_space
+    action_space = final_env.action_space
+    policy_kwargs = dict(shared_lstm=False,
+                         share_features_extractor=True,
+                        lstm_hidden_size=64,
+                         n_lstm_layers=1,
+                         )
+    model = RecurrentPPO('MlpLstmPolicy',
+                         final_env,
+                         verbose=0,
+                         use_sde=False,
+                         tensorboard_log=tboard_logdir,
+                         device="cuda",
+                         n_epochs=20,
+                         # target_kl=0.04,
+                         n_steps=7*24,
+                         stats_window_size=1,
+                         ent_coef=0.00,
+                         # policy_kwargs=policy_dict,
+                         batch_size=7*24)
+    num_actions = final_env.action_space.shape[0]
+    print(num_actions)
+    # giving the PPO the squashedGaussian instead of the normal Gaussian
+    model.policy.action_dist = SquashedDiagGaussianDistribution(action_dim=num_actions)
+    # eval_callback = EvalCallback(eval_env=final_env,
+    #                              best_model_save_path="models/",
+    #                              log_path=tboard_logdir, n_eval_episodes=1,
+    #                              eval_freq= 10*24*100, deterministic=True, render=False)
 
     model.learn(total_timesteps=1e7,
-                callback=eval_callback
+                # callback=eval_callback
                 )
     #evaluate the model, add the reward values to the tensorboard log
     #reset the env first

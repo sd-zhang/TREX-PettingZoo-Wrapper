@@ -314,7 +314,8 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
             # agent is a dictionary 'obs', 'actions', 'rewards'
 
                 agent_obs = [self.agent_mem_lists[agent_name]['obs'][j] for j in range(1,len(self.agent_mem_lists[agent_name]['obs']))] #get the values, THIS SEEMS TO WORK WITH SHAREABLE LISTS SO THIS IS WHAT WE DO
-                self._obs[agent_name] = np.expand_dims(agent_obs, axis=0)
+                self._obs[agent_name] = np.array(agent_obs)
+                # self._obs[agent_name] = np.expand_dims(agent_obs, axis=0)
                 self.agent_mem_lists[agent_name]['obs'][0] = False #Set flag to false, obs were read and are ready to be written again
 
             assert all([self.agent_mem_lists[agent]['obs'][0] for agent in self.agent_mem_lists]) == False, 'all agent obs should be read by now and ready to be written'
@@ -363,8 +364,9 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
         #update the running mean and std
 
         for agent in self.agents:
-            expaned_obs = np.expand_dims(np.array(obs[agent]), axis=0)
-            self.obs_rms.update(expaned_obs)
+            agent_obs = np.array(obs[agent])
+            # expanded_obs = np.expand_dims(np.array(obs[agent]), axis=0)
+            self.obs_rms.update(agent_obs)
 
         #clip obs for all agents
         for agent in self.agents:
@@ -383,13 +385,15 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
 
         #update the running mean and std
         for agent in self.agents:
-            agent_rewards = np.expand_dims(np.array(rewards[agent]), axis=0)
+            # agent_rewards = np.expand_dims(np.array(rewards[agent]), axis=0)
+            agent_rewards = np.array(rewards[agent])
             self.rewards_rms.update(agent_rewards)
 
         #clip rewards
         self.unscaled_rewards = rewards
         for agent in self.agents:
-            agent_rewards = np.expand_dims(np.array(rewards[agent]), axis=0)
+            agent_rewards = np.array(rewards[agent])
+            # agent_rewards = np.expand_dims(np.array(rewards[agent]), axis=0)
             scaled_agent_rewards = agent_rewards / np.sqrt(self.rewards_rms.var + 1e-8)
             scaled_agent_rewards = np.squeeze(scaled_agent_rewards, axis=0)
             rewards[agent] = scaled_agent_rewards
@@ -465,7 +469,7 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
         for trex_launch_list in augmented_launch_lists:
             new_launch_list.extend(trex_launch_list)
 
-        pool_size = int(mp.cpu_count()-5)  # Adjust based on needs
+        pool_size = int(mp.cpu_count()-12)  # Adjust based on needs
         pool = mp.Pool(processes=pool_size)
         trex_results = pool.map_async(run_subprocess, new_launch_list)  # this launches the TREX-Core sim in a non-blocking fashion (so it runs in the background)
         pool.close()
@@ -532,7 +536,7 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
                 except:
                     print('There was a problem loading the config observations')
                 num_agent_obs = len(self.agents_obs_names[agent])
-                agent_obs_space = spaces.Box(low=-np.inf, high=np.inf, shape=(1, num_agent_obs,))
+                agent_obs_space = spaces.Box(low=-np.inf, high=np.inf, shape=(num_agent_obs,))
                 self.observation_spaces[agent] = agent_obs_space
 
 
