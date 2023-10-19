@@ -24,11 +24,12 @@ class SquashedDiagGaussianDistribution(DiagGaussianDistribution):
     :param epsilon: small value to avoid NaN due to numerical imprecision.
     """
 
-    def __init__(self, action_dim: int, epsilon: float = 1e-6):
+    def __init__(self, action_dim: int, epsilon: float = 1e-6, std_bias: float = -3.0,):
         super().__init__(action_dim)
         # Avoid NaN (prevents division by zero or log of zero)
         self.epsilon = epsilon
         self.gaussian_actions = None
+        self.std_bias = std_bias
 
     def proba_distribution_net(self, latent_dim: int, log_std_init: float = 0.0) -> Tuple[nn.Module, nn.Parameter]:
         """
@@ -41,12 +42,12 @@ class SquashedDiagGaussianDistribution(DiagGaussianDistribution):
         :return:
         """
         mean_actions = nn.Linear(latent_dim, self.action_dim)
-        nn.init.uniform_(mean_actions.weight, a=-1e-3, b=1e-3)
+        nn.init.uniform_(log_std.weight, a=-1e-2, b=1e-2)
         # nn.init.uniform_(mean_actions.bias, a=-1e-3, b=-1e-3)
         # TODO: allow action dependent std
         log_std = nn.Linear(latent_dim, self.action_dim, bias=True)
-        nn.init.uniform_(log_std.weight, a=-1e-3, b=1e-3)
-        nn.init.uniform_(log_std.weight, a=-1e-3 + log_std_init, b=1e-3 + + log_std_init)
+        nn.init.uniform_(log_std.weight, a=-1e-2, b=1e-2)
+        nn.init.uniform_(log_std.weight, a=-1e-2 + self.std_bias, b=1e-2 + self.std_bias)
 
         return mean_actions, log_std
 

@@ -7,7 +7,8 @@ from supersuit.vector.sb3_vector_wrapper import SB3VecEnvWrapper
 from pettingzoo.test import parallel_api_test
 import datetime
 from sb3_contrib import RecurrentPPO
-from stable_baselines3.common.distributions import SquashedDiagGaussianDistribution
+from TREX_env._utils.custom_distributions import SquashedDiagGaussianDistribution
+from TREX_env._utils.ppo_recurrent_custom import RecurrentPPO
 from stable_baselines3.common.evaluation import evaluate_policy
 from stable_baselines3.common.callbacks import EvalCallback
 from stable_baselines3.common.vec_env import VecNormalize, VecMonitor, VecFrameStack
@@ -64,7 +65,7 @@ if "__main__" == __name__:  # this is needed to make sure the code is not execut
                          use_sde=False,
                          tensorboard_log=tboard_logdir,
                          device="cuda",
-                         n_epochs=20,
+                         n_epochs=25,
                          # target_kl=0.04,
                          n_steps=7*24,
                          stats_window_size=1,
@@ -74,7 +75,8 @@ if "__main__" == __name__:  # this is needed to make sure the code is not execut
     num_actions = final_env.action_space.shape[0]
     print(num_actions)
     # giving the PPO the squashedGaussian instead of the normal Gaussian
-    model.policy.action_dist = SquashedDiagGaussianDistribution(action_dim=num_actions)
+    model.policy.action_dist = SquashedDiagGaussianDistribution(action_dim=num_actions,
+                                                                std_bias=-10.0)
     # eval_callback = EvalCallback(eval_env=final_env,
     #                              best_model_save_path="models/",
     #                              log_path=tboard_logdir, n_eval_episodes=1,
