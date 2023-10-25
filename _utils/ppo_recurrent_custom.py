@@ -14,7 +14,8 @@ from stable_baselines3.common.type_aliases import GymEnv, MaybeCallback, Schedul
 from stable_baselines3.common.utils import explained_variance, get_schedule_fn, obs_as_tensor, safe_mean
 from stable_baselines3.common.vec_env import VecEnv
 
-from sb3_contrib.common.recurrent.buffers import RecurrentDictRolloutBuffer, RecurrentRolloutBuffer
+from sb3_contrib.common.recurrent.buffers import RecurrentDictRolloutBuffer
+from TREX_env._utils.custom_buffer import RecurrentRolloutBuffer
 from sb3_contrib.common.recurrent.policies import RecurrentActorCriticPolicy
 from sb3_contrib.common.recurrent.type_aliases import RNNStates
 from sb3_contrib.ppo_recurrent.policies import CnnLstmPolicy, MlpLstmPolicy, MultiInputLstmPolicy
@@ -98,6 +99,9 @@ class RecurrentPPO(OnPolicyAlgorithm):
         verbose: int = 0,
         seed: Optional[int] = None,
         device: Union[th.device, str] = "auto",
+        recalculate_lstm_states: bool = False,
+        rewards_shift: int = 0,
+        self_bootstrap_dones: bool = True,
         _init_setup_model: bool = True,
     ):
         super().__init__(
@@ -134,6 +138,12 @@ class RecurrentPPO(OnPolicyAlgorithm):
         self.normalize_advantage = normalize_advantage
         self.target_kl = target_kl
         self._last_lstm_states = None
+
+        self.recalculate_lstm_states = recalculate_lstm_states
+        self.rewards_shift = rewards_shift
+        if rewards_shift > 0:
+            self.rewards_shift_fifo = [None]*rewards_shift
+        self.self_bootstrap_dones = self_bootstrap_dones
 
         if _init_setup_model:
             self._setup_model()
@@ -173,11 +183,21 @@ class RecurrentPPO(OnPolicyAlgorithm):
             ),
         )
 
-        self.partial_rollout_episode_buffer = {}#added to make sure we can recalculate the updated LSTM states after learning
-        self.partial_rollout_episode_buffer['zero_lstm_states'] = deepcopy(self._last_lstm_states)
-        self.partial_rollout_episode_buffer['obs'] = []
-        self.partial_rollout_episode_buffer['episode_starts'] = []
-#         self.partial_rollout_episode_buffer['states'] = [] #used for debugging purposes
+        if self.recalculate_lstm_states:
+            self.partial_rollout_episode_buffer = {}#added to make sure we can recalculate the updated LSTM states after learning
+            self.partial_rollout_episode_buffer['zero_lstm_states'] = RNNStates(
+            (
+                th.zeros(single_hidden_state_shape, device=self.device),
+                th.zeros(single_hidden_state_shape, device=self.device),
+            ),
+            (
+                th.zeros(single_hidden_state_shape, device=self.device),
+                th.zeros(single_hidden_state_shape, device=self.device),
+            ),
+        )
+            self.partial_rollout_episode_buffer['obs'] = []
+            self.partial_rollout_episode_buffer['episode_starts'] = []
+    #         self.partial_rollout_episode_buffer['states'] = [] #used for debugging purposes
 
         hidden_state_buffer_shape = (self.n_steps, lstm.num_layers, self.n_envs, lstm.hidden_size)
 
@@ -229,6 +249,10 @@ class RecurrentPPO(OnPolicyAlgorithm):
         self.policy.set_training_mode(False)
 
         n_steps = 0
+        if self.rewards_shift > 0:
+            self.rewards_shift_fifo = [None]*self.rewards_shift
+            n_steps -= self.rewards_shift
+            print('n steps', n_steps)
         rollout_buffer.reset()
         # Sample new weights for the state dependent exploration
         if self.use_sde:
@@ -237,7 +261,7 @@ class RecurrentPPO(OnPolicyAlgorithm):
         callback.on_rollout_start()
 
         # ToDo: recalculate the new lstm_states based on a buffer of obs, etc so we make sure they are fresh!
-        if len(self.partial_rollout_episode_buffer['obs']) > 0:
+        if self.recalculate_lstm_states and len(self.partial_rollout_episode_buffer['obs']) > 0:
             with th.no_grad():
                 for step in range(len(self.partial_rollout_episode_buffer['obs'])):
                     obs_tensor = self.partial_rollout_episode_buffer['obs'][step]
@@ -261,9 +285,9 @@ class RecurrentPPO(OnPolicyAlgorithm):
                 obs_tensor = obs_as_tensor(self._last_obs, self.device)
                 episode_starts = th.tensor(self._last_episode_starts, dtype=th.float32, device=self.device) #Episode starts means that the LSTM state gets reset
 
-                self.partial_rollout_episode_buffer['obs'].append(obs_tensor)
-                self.partial_rollout_episode_buffer['episode_starts'].append(episode_starts)
-
+                if self.recalculate_lstm_states:
+                    self.partial_rollout_episode_buffer['obs'].append(obs_tensor)
+                    self.partial_rollout_episode_buffer['episode_starts'].append(episode_starts)
 
                 actions, values, log_probs, lstm_states = self.policy.forward(obs_tensor, lstm_states, episode_starts)
                 # self.partial_rollout_episode_buffer['states'].append(lstm_states) #for debugging purposes only
@@ -309,26 +333,102 @@ class RecurrentPPO(OnPolicyAlgorithm):
                         # terminal_lstm_state = None
                         episode_starts = th.tensor([False], dtype=th.float32, device=self.device)
                         terminal_value = self.policy.predict_values(terminal_obs, terminal_lstm_state, episode_starts)[0]
-                    rewards[idx] += self.gamma * terminal_value
 
-            rollout_buffer.add(
-                self._last_obs,
-                actions,
-                rewards,
-                self._last_episode_starts,
-                values,
-                log_probs,
-                lstm_states=self._last_lstm_states,
-            )
+                        rewards[idx] += self.gamma * terminal_value
+
+            if self.rewards_shift > 0: #If we're shifting rewards, we're also shifting dones
+                step_dict = dict()
+                step_dict['last_obs'] = self._last_obs
+                step_dict['actions'] = actions
+                step_dict['log_probs'] = log_probs
+                step_dict['rewards'] = rewards #This is what we are shifting all other things for
+                step_dict['values'] = values #This needs to be shifted, too
+                step_dict['last_dones'] = self._last_episode_starts #we have to shift this, too because this affects value calcs
+                step_dict['last_lstm_states'] = self._last_lstm_states
+
+                self.rewards_shift_fifo.append(step_dict)
+
+                if all(dones) and self.self_bootstrap_dones:
+                    # we have already collected the value bootstrap for this. ALL that remains is adding it to the rewards
+                    # since we shifted the rewards by reward_shift >= 1
+                    # our current batched obs are at [0]
+                    # so the bootstrap will be at [1]
+                    with th.no_grad():
+                        _obs = self.rewards_shift_fifo[1]['last_obs']
+                        _lstm_states = self.rewards_shift_fifo[1]['last_lstm_states']
+                        _last_dones = self.rewards_shift_fifo[1]['last_dones']
+                        terminal_value = self.policy.predict_values(_obs, _lstm_states, _last_dones)
+                        value_bootstrap_squeezed = np.squeeze( terminal_value.cpu().numpy())
+                        rewards = self.rewards_shift_fifo[self.rewards_shift]['rewards']
+                        self.rewards_shift_fifo[self.rewards_shift]['rewards'] = rewards + self.gamma * value_bootstrap_squeezed
+
+                # ToDo: Something about how we're handling the episode end dones seems off
+                if self.rewards_shift_fifo[0] is not None:
+                    buffer_last_obs = self.rewards_shift_fifo[0]['last_obs']
+                    buffer_actions = self.rewards_shift_fifo[0]['actions']
+                    buffer_log_probs = self.rewards_shift_fifo[0]['log_probs']
+                    last_lstm_states = self.rewards_shift_fifo[0]['last_lstm_states']
+                    buffer_rewards = self.rewards_shift_fifo[self.rewards_shift]['rewards']
+                    buffer_values = self.rewards_shift_fifo[0]['values']
+                    last_dones = self.rewards_shift_fifo[0]['last_dones']
+
+                    rollout_buffer.add(
+                        buffer_last_obs,
+                        buffer_actions,
+                        buffer_rewards,
+                        last_dones,
+                        buffer_values,
+                        buffer_log_probs,
+                        lstm_states=last_lstm_states,
+                    )
+
+                del self.rewards_shift_fifo[0] #popping the 0th entry
+            else:
+
+                buffer_last_obs = self._last_obs
+                buffer_actions = actions
+                buffer_rewards = rewards
+                buffer_values = values
+                buffer_log_probs = log_probs
+                last_dones = self._last_episode_starts
+                last_lstm_states = self._last_lstm_states
+
+                rollout_buffer.add(
+                    buffer_last_obs,
+                    buffer_actions,
+                    buffer_rewards,
+                    last_dones,
+                    buffer_values,
+                    buffer_log_probs,
+                    lstm_states=last_lstm_states,
+                )
+
+            # # Original
+            # rollout_buffer.add(
+            #     self._last_obs,
+            #     actions,
+            #     rewards,
+            #     self._last_episode_starts,
+            #     values,
+            #     log_probs,
+            #     lstm_states=self._last_lstm_states,
+            # )
 
             self._last_obs = new_obs
             self._last_episode_starts = dones
             self._last_lstm_states = lstm_states
 
-            if all(dones):
-                # print('resetting partial buffer') #ToDo: remove after some tests
+            if self.recalculate_lstm_states and all(dones):
+                print('resetting partial buffer') #ToDo: remove after some tests
                 self.partial_rollout_episode_buffer['obs'] = []
                 self.partial_rollout_episode_buffer['episode_starts'] = []
+
+            # whenever the env resets, we need to make sure to collect up to actual rewards first!
+            if all(dones) and self.rewards_shift>0:
+                print('resetting reward shift buffer because dones')
+                self.rewards_shift_fifo = [None] * self.rewards_shift
+                # reset the n_steps
+                n_steps -= self.rewards_shift
 
 
         with th.no_grad():

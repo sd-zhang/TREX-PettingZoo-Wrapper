@@ -469,7 +469,7 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
         for trex_launch_list in augmented_launch_lists:
             new_launch_list.extend(trex_launch_list)
 
-        pool_size = int(mp.cpu_count()-12)  # Adjust based on needs
+        pool_size = int(mp.cpu_count()-8)  # Adjust based on needs
         pool = mp.Pool(processes=pool_size)
         trex_results = pool.map_async(run_subprocess, new_launch_list)  # this launches the TREX-Core sim in a non-blocking fashion (so it runs in the background)
         pool.close()

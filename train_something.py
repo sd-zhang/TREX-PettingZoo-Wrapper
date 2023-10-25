@@ -7,11 +7,13 @@ from supersuit.vector.sb3_vector_wrapper import SB3VecEnvWrapper
 from pettingzoo.test import parallel_api_test
 import datetime
 from sb3_contrib import RecurrentPPO
-from TREX_env._utils.custom_distributions import SquashedDiagGaussianDistribution
+# from TREX_env._utils.custom_distributions import SquashedDiagGaussianDistribution as Squash
 from TREX_env._utils.ppo_recurrent_custom import RecurrentPPO
+from TREX_env._utils.custom_wrappers import VecNormalizeArcoss
 from stable_baselines3.common.evaluation import evaluate_policy
 from stable_baselines3.common.callbacks import EvalCallback
-from stable_baselines3.common.vec_env import VecNormalize, VecMonitor, VecFrameStack
+from stable_baselines3.common.vec_env import VecNormalize, VecMonitor, VecFrameStack, VecCheckNan
+from stable_baselines3.common.distributions import SquashedDiagGaussianDistribution
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.her.her_replay_buffer import HerReplayBuffer
 from gymnasium.wrappers import FrameStack, NormalizeObservation
@@ -21,7 +23,7 @@ from gymnasium.wrappers import FrameStack, NormalizeObservation
 # test if the quantities line uo - battery charge and netloads, etc...
 
 if "__main__" == __name__:  # this is needed to make sure the code is not executed when imported
-    config_name = "Consistencytest"
+    config_name = "MultiHouseTest"
 
     current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     tboard_logdir = f"runs/{current_time}"
@@ -43,7 +45,8 @@ if "__main__" == __name__:  # this is needed to make sure the code is not execut
     # trex_env = VecFrameStack(trex_env, n_stack=5)
 
     unnormalized_env = VecMonitor(trex_env, filename=tboard_logdir) #can add extra arguments to monitor in info keywords, look up https://stable-baselines3.readthedocs.io/en/master/_modules/stable_baselines3/common/vec_env/vec_monitor.html
-    final_env = VecNormalize(unnormalized_env, norm_obs=True, norm_reward=True, clip_obs=np.inf, clip_reward=np.inf, gamma=0.99, epsilon=1e-08)
+    final_env = VecNormalize(unnormalized_env, norm_obs=True, norm_reward=False, clip_obs=1e4, clip_reward=1e4, gamma=0.99, epsilon=1e-08)
+    final_env = VecCheckNan(final_env)
     # final_env = VecFrameStack(final_env, n_stack=12, channels_order='first')
     # trex_env = ss.concat_vec_envs_v1(trex_env, 1, base_class="stable_baselines3")
 
@@ -54,10 +57,12 @@ if "__main__" == __name__:  # this is needed to make sure the code is not execut
     #set up Recurrent PPO
     obs_space = final_env.observation_space
     action_space = final_env.action_space
+    num_actions = final_env.action_space.shape[0]
     policy_kwargs = dict(shared_lstm=False,
                          share_features_extractor=True,
-                        lstm_hidden_size=64,
-                         n_lstm_layers=1,
+                        lstm_hidden_size=256,
+                         n_lstm_layers=2,
+                         # log_std=-10
                          )
     model = RecurrentPPO('MlpLstmPolicy',
                          final_env,
@@ -67,16 +72,16 @@ if "__main__" == __name__:  # this is needed to make sure the code is not execut
                          device="cuda",
                          n_epochs=25,
                          # target_kl=0.04,
-                         n_steps=7*24,
+                         n_steps=9*24,
                          stats_window_size=1,
                          ent_coef=0.00,
                          # policy_kwargs=policy_dict,
-                         batch_size=7*24)
-    num_actions = final_env.action_space.shape[0]
-    print(num_actions)
-    # giving the PPO the squashedGaussian instead of the normal Gaussian
-    model.policy.action_dist = SquashedDiagGaussianDistribution(action_dim=num_actions,
-                                                                std_bias=-10.0)
+                         batch_size=3*24,
+                         recalculate_lstm_states=True,
+                         rewards_shift=2,
+                         self_bootstrap_dones=False,
+                         )
+    model.policy.action_dist = SquashedDiagGaussianDistribution(action_dim=num_actions, epsilon=1e-5)
     # eval_callback = EvalCallback(eval_env=final_env,
     #                              best_model_save_path="models/",
     #                              log_path=tboard_logdir, n_eval_episodes=1,

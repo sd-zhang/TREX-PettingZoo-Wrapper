@@ -46,11 +46,11 @@ def constant_price_heuristic(action_spaces, price=0.11, **kwargs):
             netload_deliver = agent_obs[netload_deliver_index]
 
         if 'storage' in agent_action_keys[agent_name]:
-            SoC_index = agent_obs_keys[agent_name].index('SoC')
+            SoC_index = agent_obs_keys[agent_name].index('SoC_settle')
             SoC = agent_obs[SoC_index]
             # print('agent {} has SoC {}'.format(agent_name, SoC))
             battery_index = agent_action_keys[agent_name].index('storage')
-            actions[agent_name][battery_index] = -netload_deliver/3000
+            actions[agent_name][battery_index] = -min(1.0, max(netload_deliver/3000, -1.0))
 
 
 
@@ -152,6 +152,8 @@ def run_heuristic(heuristic, config_name='GymIntegration_test', action_space_typ
             #    print('agent: ', agent, ' action: ', action, flush=True)
             obs, reward, terminateds, truncated, info = trex_env.step(actions)
 
+            # print(reward)
+
             if 'yeartime_sin' in agents_obs_keys[agent_names[0]]:
                 sin_index = agents_obs_keys[agent_names[0]].index('yeartime_sin')
                 sin = obs[agent_names[0]][sin_index]
@@ -209,7 +211,7 @@ if __name__ == '__main__':
 
     # run the constant price baseline
     print('constant price heuristic')
-    agents_episode_returns, agent_names, episode_steps = run_heuristic(heuristic=constant_price_heuristic, config_name='Consistencytest')
+    agents_episode_returns, agent_names, episode_steps = run_heuristic(heuristic=constant_price_heuristic, config_name='MultiHouseTest')
 
     median_episode_length = np.median(episode_steps)
     median_episode_lengh_percentage = (1-len(np.where(episode_steps != median_episode_length)[0])/len(episode_steps))*100
