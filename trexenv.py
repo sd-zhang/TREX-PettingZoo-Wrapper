@@ -321,8 +321,10 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
                 agent_obs = [self.agent_mem_lists[agent_name]['obs'][j] for j in range(1,len(self.agent_mem_lists[agent_name]['obs']))] #get the values, THIS SEEMS TO WORK WITH SHAREABLE LISTS SO THIS IS WHAT WE DO
 
                 if self.one_hot_encode_agent_ids:
-                    cathegorical = bin_array(i, self.num_one_hot_bits).tolist()
-                    agent_obs.expand(cathegorical)
+                    cathegorical = bin_array(i+1, self.num_one_hot_bits).tolist()
+                    for index, bit in enumerate(cathegorical):
+                        position_in_obs = len(agent_obs) - self.num_one_hot_bits + index
+                        agent_obs[position_in_obs] = float(bit)
 
                 self._obs[agent_name] = np.array(agent_obs)
                 # self._obs[agent_name] = np.expand_dims(agent_obs, axis=0)
