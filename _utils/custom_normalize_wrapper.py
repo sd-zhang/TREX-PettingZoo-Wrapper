@@ -12,12 +12,10 @@ from stable_baselines3.common.running_mean_std import RunningMeanStd
 from stable_baselines3.common.vec_env.base_vec_env import VecEnv, VecEnvStepReturn, VecEnvWrapper
 
 
-class VecNormalizeArcoss(VecEnvWrapper):
+class VecNormalize_excludeBits(VecEnvWrapper):
     """
     A moving average, normalizing wrapper for vectorized environment.
     has support for saving/loading moving average,
-
-    In contrast to the deafult SB3 wrapper VecNormalize this one logs only one mean and std across all vec envs
 
     :param venv: the vectorized environment to wrap
     :param training: Whether to update or not the moving average
@@ -42,6 +40,7 @@ class VecNormalizeArcoss(VecEnvWrapper):
         gamma: float = 0.99,
         epsilon: float = 1e-8,
         norm_obs_keys: Optional[List[str]] = None,
+        num_bits: int = 0, #the number of bit type observations, assumed to be AT THE END of the observations!!
     ):
         VecEnvWrapper.__init__(self, venv)
 
@@ -52,21 +51,25 @@ class VecNormalizeArcoss(VecEnvWrapper):
             self._sanity_checks()
 
             if isinstance(self.observation_space, spaces.Dict):
-                self.obs_spaces = self.observation_space.spaces
-                self.obs_rms = {key: RunningMeanStd(shape=self.obs_spaces[key].shape) for key in self.norm_obs_keys}
-                # Update observation space when using image
-                # See explanation below and GH #1214
-                for key in self.obs_rms.keys():
-                    if is_image_space(self.obs_spaces[key]):
-                        self.observation_space.spaces[key] = spaces.Box(
-                            low=-clip_obs,
-                            high=clip_obs,
-                            shape=self.obs_spaces[key].shape,
-                            dtype=np.float32,
-                        )
+                raise NotImplementedError
+                # self.obs_spaces = self.observation_space.spaces
+                # self.obs_rms = {key: RunningMeanStd(shape=self.obs_spaces[key].shape) for key in self.norm_obs_keys}
+                # # Update observation space when using image
+                # # See explanation below and GH #1214
+                # for key in self.obs_rms.keys():
+                #     if is_image_space(self.obs_spaces[key]):
+                #         self.observation_space.spaces[key] = spaces.Box(
+                #             low=-clip_obs,
+                #             high=clip_obs,
+                #             shape=self.obs_spaces[key].shape,
+                #             dtype=np.float32,
+                #         )
 
             else:
                 self.obs_spaces = None
+                shape = self.observation_space.shape
+                assert len(shape) == 1, 'at the moment this only supports 1 dimensional observation spaces!!'
+
                 self.obs_rms = RunningMeanStd(shape=self.observation_space.shape)
                 # Update observation space when using image
                 # See GH #1214
@@ -77,12 +80,13 @@ class VecNormalizeArcoss(VecEnvWrapper):
                 # in other cases but this will cause backward-incompatible change
                 # and break already saved policies.
                 if is_image_space(self.observation_space):
-                    self.observation_space = spaces.Box(
-                        low=-clip_obs,
-                        high=clip_obs,
-                        shape=self.observation_space.shape,
-                        dtype=np.float32,
-                    )
+                    raise NotImplementedError
+                    # self.observation_space = spaces.Box(
+                    #     low=-clip_obs,
+                    #     high=clip_obs,
+                    #     shape=self.observation_space.shape,
+                    #     dtype=np.float32,
+                    # )
 
         self.ret_rms = RunningMeanStd(shape=())
         self.clip_obs = clip_obs
@@ -165,6 +169,7 @@ class VecNormalizeArcoss(VecEnvWrapper):
         self.venv = venv
         self.num_envs = venv.num_envs
         self.class_attributes = dict(inspect.getmembers(self.__class__))
+        self.render_mode = venv.render_mode
 
         # Check that the observation_space shape match
         utils.check_shape_equal(self.observation_space, venv.observation_space)

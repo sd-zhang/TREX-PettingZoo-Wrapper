@@ -145,7 +145,7 @@ class SquashedDiagGaussianDistribution(DiagGaussianDistribution):
     def entropy(self) -> Optional[th.Tensor]:
         # No analytical form,
         # entropy needs to be estimated using -log_prob.mean()
-        return None
+        return sum_independent_dims(self.distribution.entropy())
 
     def sample(self) -> th.Tensor:
         # Reparametrization trick to pass gradients

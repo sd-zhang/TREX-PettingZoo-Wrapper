@@ -9,10 +9,11 @@ from TREX_env._utils.models import build_actor_critic_models, sample_pi
 
 import tensorflow as tf
 from tensorflow import keras as k
+import numpy as np
 
 current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 tboard_logdir = f"runs/{current_time}"
-config_name = "GymIntegration_test"
+config_name = "Consistencytest"
 
 buffer_length = 7*24*10 # (for 10 agents)
 trajectory_length = 2*24
@@ -24,7 +25,63 @@ def batch_for_vecenv(agents_dict):
 
 def sample_trajectories_and_store():
     pass
+def collect_experience(actor, critic, buffer, env):
 
+    buffer_filled = False
+    while not buffer_filled:
+
+        # reset env
+        agents_obs_t, agents_infos = trex_env.reset()
+
+        actor_inputs = dict()
+        actor_inputs['observations'] = tf.convert_to_tensor(batch_for_vecenv(agents_obs_t))
+        for key in ppo_actor_states_buffer:
+            actor_inputs[key] = ppo_actor_states_buffer[key]
+        actor_outs = ppo_actor(actor_inputs)
+        for key in ppo_actor_states_buffer:
+            ppo_actor_states_buffer[key] = actor_outs.pop(key)  # save the updated states
+        pi_t = actor_outs.pop('pi')
+        action_scaled, log_prob, a_unscaled = sample_pi(pi_t, ppo_actor_dist, action_space_shape)
+
+        # get sample actions
+        agents_actions = dict()
+        for agent_index, agent_name in enumerate(agent_names):
+            agent_action_space = trex_env.action_spaces[agent_name]
+            dummy_action = agent_action_space.sample()
+            agent_action = np.array([a_unscaled[agent_index]])
+            agents_actions[agent_name] = agent_action
+
+        agents_obs_t, agents_rewards_tm2, agents_terminateds_t, agents_truncateds_t,  agents_infos_t = trex_env.step(agents_actions)
+
+        actor_inputs = dict()
+        actor_inputs['observations'] = tf.convert_to_tensor(batch_for_vecenv(agents_obs_t))
+        for key in ppo_actor_states_buffer:
+            actor_inputs[key] = ppo_actor_states_buffer[key]
+        actor_outs = ppo_actor(actor_inputs)
+        for key in ppo_actor_states_buffer:
+            ppo_actor_states_buffer[key] = actor_outs.pop(key)  # save the updated states
+        pi_t = actor_outs.pop('pi')
+        action_scaled, log_prob, a_unscaled = sample_pi(pi_t, ppo_actor_dist, action_space_shape)
+
+        #ToDo: make the env return the settle offset, so we can do this dynamically
+        # we'll wait for 2 steps so we can align the reward to the agent_obs
+        # we have to make sure we do truncation properly!
+        for agent_index, agent_name in enumerate(agent_names):
+            run_index = agent_rollout_episodes[agent_index]
+
+            rerp_buffer.add_entry(actions_taken=agents_actions[agent_name],
+                                  log_probs=log_prob[agent_index],
+                                  values=0, #ToDo: this is where we store the value of the agent during rollout
+                                  observations=agents_obs_t[agent_name],
+                                  rewards=agents_rewards_tm2[agent_name],
+                                  actor_states=None, #ToDo: figure out how to query this!
+                                  critic_states=None,
+                                  episode=run_index,
+                                  )
+
+        ready_to_learn = rerp_buffer.should_we_learn()
+
+    return buffer_filled
 
 if "__main__" == __name__:  # this is needed to make sure the code is not executed when imported
 
@@ -69,56 +126,6 @@ if "__main__" == __name__:  # this is needed to make sure the code is not execut
         ppo_actor_states_buffer[key] = tf.broadcast_to(ppo_actor_states_buffer[key], shape=shape)
 
     # learning loop
-    #reset env
-    agents_obs_t, agents_infos = trex_env.reset()
-
-    actor_inputs = dict()
-    actor_inputs['observations'] = tf.convert_to_tensor(batch_for_vecenv(agents_obs_t))
-    for key in ppo_actor_states_buffer:
-        actor_inputs[key] = ppo_actor_states_buffer[key]
-    actor_outs = ppo_actor(actor_inputs)
-    for key in ppo_actor_states_buffer:
-        ppo_actor_states_buffer[key] = actor_outs.pop(key) #save the updated states
-    pi_t = actor_outs.pop('pi')
-    action_scaled, log_prob, a_unscaled = sample_pi(pi_t, ppo_actor_dist, action_space_shape)
-
-    ready_to_learn = False
-    while not ready_to_learn:
-        # get sample actions
-        agents_actions = dict()
-        for agent_index, agent_name in enumerate(agent_names):
-            agent_action = a_unscaled[agent_index]
-            agents_actions[agent_name] = agent_action
-
-        agents_obs_t, agents_rewards_tm2, agents_terminateds_t, agents_truncateds_t,  agents_infos_t = trex_env.step(agents_actions)
-
-        actor_inputs = dict()
-        actor_inputs['observations'] = tf.convert_to_tensor(batch_for_vecenv(agents_obs_t))
-        for key in ppo_actor_states_buffer:
-            actor_inputs[key] = ppo_actor_states_buffer[key]
-        actor_outs = ppo_actor(actor_inputs)
-        for key in ppo_actor_states_buffer:
-            ppo_actor_states_buffer[key] = actor_outs.pop(key)  # save the updated states
-        pi_t = actor_outs.pop('pi')
-        action_scaled, log_prob, a_unscaled = sample_pi(pi_t, ppo_actor_dist, action_space_shape)
-
-        #ToDo: make the env return the settle offset, so we can do this dynamically
-        # we'll wait for 2 steps so we can align the reward to the agent_obs
-        # we have to make sure we do truncation properly!
-        for agent_index, agent_name in enumerate(agent_names):
-            run_index = agent_rollout_episodes[agent_index]
-
-            rerp_buffer.add_entry(actions_taken=agents_actions[agent_name],
-                                  log_probs=log_prob[agent_index],
-                                  values=0, #ToDo: this is where we store the value of the agent during rollout
-                                  observations=agents_obs_t[agent_name],
-                                  rewards=agents_rewards_tm2[agent_name],
-                                  actor_states=None, #ToDo: figure out how to query this!
-                                  critic_states=None,
-                                  episode=run_index,
-                                  )
-
-        ready_to_learn = rerp_buffer.should_we_learn()
 
     # collect a batch
     rerp_buffer.generate_availale_indices()

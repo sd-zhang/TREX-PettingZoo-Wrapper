@@ -354,17 +354,17 @@ class RecurrentPPO(OnPolicyAlgorithm):
                     # our current batched obs are at [0]
                     # so the bootstrap will be at [1]
                     with th.no_grad():
-                        _obs = self.rewards_shift_fifo[1]['last_obs']
-                        _lstm_states = self.rewards_shift_fifo[1]['last_lstm_states']
-                        _last_dones = self.rewards_shift_fifo[1]['last_dones']
-                        terminal_value = self.policy.predict_values(_obs, _lstm_states, _last_dones)
+                        _obs = obs_as_tensor(self.rewards_shift_fifo[1]['last_obs'], self.device)
+                        _lstm_states = deepcopy(self.rewards_shift_fifo[1]['last_lstm_states'])
+                        _last_dones =  th.tensor(self.rewards_shift_fifo[1]['last_dones'], dtype=th.float32, device=self.device)
+                        actions, terminal_value, log_probs, lstm_states = self.policy.forward(_obs, _lstm_states, _last_dones)
                         value_bootstrap_squeezed = np.squeeze( terminal_value.cpu().numpy())
                         rewards = self.rewards_shift_fifo[self.rewards_shift]['rewards']
                         self.rewards_shift_fifo[self.rewards_shift]['rewards'] = rewards + self.gamma * value_bootstrap_squeezed
 
                 # ToDo: Something about how we're handling the episode end dones seems off
                 if self.rewards_shift_fifo[0] is not None:
-                    buffer_last_obs = self.rewards_shift_fifo[0]['last_obs']
+                    buffer_last_obs = th.Tensor(self.rewards_shift_fifo[0]['last_obs'])
                     buffer_actions = self.rewards_shift_fifo[0]['actions']
                     buffer_log_probs = self.rewards_shift_fifo[0]['log_probs']
                     last_lstm_states = self.rewards_shift_fifo[0]['last_lstm_states']
@@ -466,7 +466,7 @@ class RecurrentPPO(OnPolicyAlgorithm):
         for epoch in range(self.n_epochs):
             approx_kl_divs = []
             # Do a complete pass on the rollout buffer
-            for rollout_data in self.rollout_buffer.get(self.batch_size):
+            for rollout_data in self.rollout_buffer.get(self.batch_size,):
                 actions = rollout_data.actions
                 if isinstance(self.action_space, spaces.Discrete):
                     # Convert discrete action from float to long
@@ -479,21 +479,38 @@ class RecurrentPPO(OnPolicyAlgorithm):
                 if self.use_sde:
                     self.policy.reset_noise(self.batch_size)
 
+    #ToDO: so it turns out that the size of the rollout seems to be
+    # n_steps - 4
+    # i could understand n_steps_2
+    # i could understand batchsize, but its not batchsize
+                burn_in = int(self.batch_size/2)
+                learn_seq = int(self.batch_size - burn_in)
+                mask = mask[burn_in:]
+                with th.no_grad():
+                    _obs = rollout_data.observations[:burn_in, :]
+                    _lstm_states = rollout_data.lstm_states
+                    _starts = rollout_data.episode_starts[:burn_in]
+                    _actions, _values, _log_probs, _lstm_states = self.policy.forward(_obs, _lstm_states, _starts)
+
+                learn_obs = rollout_data.observations[burn_in:, :]
+                learn_actions = actions[burn_in:, :]
+                learn_starts = rollout_data.episode_starts[burn_in:]
                 values, log_prob, entropy = self.policy.evaluate_actions(
-                    rollout_data.observations,
-                    actions,
-                    rollout_data.lstm_states,
-                    rollout_data.episode_starts,
+                    learn_obs,
+                    learn_actions,
+                    _lstm_states,
+                    learn_starts,
                 )
 
                 values = values.flatten()
                 # Normalize advantage
-                advantages = rollout_data.advantages
+                advantages = rollout_data.advantages[burn_in:]
                 if self.normalize_advantage:
                     advantages = (advantages - advantages[mask].mean()) / (advantages[mask].std() + 1e-8)
 
                 # ratio between old and new policy, should be one at the first iteration
-                ratio = th.exp(log_prob - rollout_data.old_log_prob)
+                old_log_probs = rollout_data.old_log_prob[burn_in:]
+                ratio = th.exp(log_prob - old_log_probs)
 
                 # clipped surrogate loss
                 policy_loss_1 = advantages * ratio
@@ -516,14 +533,16 @@ class RecurrentPPO(OnPolicyAlgorithm):
                     )
                 # Value loss using the TD(gae_lambda) target
                 # Mask padded sequences
-                value_loss = th.mean(((rollout_data.returns - values_pred) ** 2)[mask])
+                targets = rollout_data.returns[burn_in:]
+                value_loss = th.mean(((targets - values_pred) ** 2)[mask])
 
                 value_losses.append(value_loss.item())
 
                 # Entropy loss favor exploration
                 if entropy is None:
                     # Approximate entropy when no analytical form
-                    entropy_loss = -th.mean(-log_prob[mask])
+                    clipped_log_probs = th.clamp(-log_prob[mask], -1e5, 1e5)
+                    entropy_loss = -th.mean(clipped_log_probs)
                 else:
                     entropy_loss = -th.mean(entropy[mask])
 
@@ -536,7 +555,7 @@ class RecurrentPPO(OnPolicyAlgorithm):
                 # and discussion in PR #419: https://github.com/DLR-RM/stable-baselines3/pull/419
                 # and Schulman blog: http://joschu.net/blog/kl-approx.html
                 with th.no_grad():
-                    log_ratio = log_prob - rollout_data.old_log_prob
+                    log_ratio = log_prob - old_log_probs
                     approx_kl_div = th.mean(((th.exp(log_ratio) - 1) - log_ratio)[mask]).cpu().numpy()
                     approx_kl_divs.append(approx_kl_div)
 

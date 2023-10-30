@@ -50,7 +50,7 @@ def constant_price_heuristic(action_spaces, price=0.11, **kwargs):
             SoC = agent_obs[SoC_index]
             # print('agent {} has SoC {}'.format(agent_name, SoC))
             battery_index = agent_action_keys[agent_name].index('storage')
-            actions[agent_name][battery_index] = -min(1.0, max(netload_deliver/3000, -1.0))
+            actions[agent_name][battery_index] = 0 # -min(1.0, max(netload_deliver/3000, -1.0))
 
 
 
@@ -211,7 +211,7 @@ if __name__ == '__main__':
 
     # run the constant price baseline
     print('constant price heuristic')
-    agents_episode_returns, agent_names, episode_steps = run_heuristic(heuristic=constant_price_heuristic, config_name='MultiHouseTest')
+    agents_episode_returns, agent_names, episode_steps = run_heuristic(heuristic=constant_price_heuristic, config_name='MultiHouseTest_Year')
 
     median_episode_length = np.median(episode_steps)
     median_episode_lengh_percentage = (1-len(np.where(episode_steps != median_episode_length)[0])/len(episode_steps))*100

@@ -14,6 +14,13 @@ from mathutils import RunningMeanStdMinMax
 
 #ToDo: check how we're fucking up the reset, we're overflowing 2h?
 
+def bin_array(num, m):
+    """Convert a positive integer num into an m-bit bit vector"""
+    return np.array(list(np.binary_repr(num).zfill(m))).astype(np.int8)
+def to_categorical(y, num_classes):
+    """ 1-hot encodes a tensor """
+    return np.eye(num_classes, dtype='uint8')[y]
+
 class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth else?
     """
 
@@ -23,10 +30,9 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
     def __init__(self,
                  config_name=None, #ToDo: add a default here
                  run_name=hash(os.times()) % 100, #ToDo: add a default here
-                 normalize_obs=False,
-                 normalize_rewards=False,
                  action_space_type='continuous', #continuous or discrete
                     action_space_entries=None, #only applicable if we have discrete actions
+                    one_hot_encode_agent_ids=True,
                  **kwargs):
         """
         This method initializes the environment and sets up the action and observation spaces
@@ -54,9 +60,8 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
 
         self.possible_agents = self.agents #change if that ever becomes a thing
         # self.max_num_agents = self.num_agents #might be an autoset attribute
+        self.one_hot_encode_agent_ids = one_hot_encode_agent_ids
 
-        self.normalize_obs = normalize_obs
-        self.normalize_rewards = normalize_rewards
         # set up general env variables
         self.episode_length = int(np.floor(self.config['study']['days'] * 24 * 60 * 60 / self.config['study']['time_step_size']) + 1) #Because the length of an episode is given by the config
         self.episode_limit = int(np.floor(self.config['study']['generations'])) #number of max episodes
@@ -290,7 +295,7 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
         # self._obs is populated in env.step, but the values are pulled before the next
         # steps
         self._read_obs_smls()
-        return self._scale_obs(self._obs) if self.normalize_obs else self._obs
+        return self._obs
     @tenacity.retry(wait=tenacity.wait_fixed(0.01)
                           + tenacity.wait_random(0, 0.01),
                     )
@@ -314,6 +319,11 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
             # agent is a dictionary 'obs', 'actions', 'rewards'
 
                 agent_obs = [self.agent_mem_lists[agent_name]['obs'][j] for j in range(1,len(self.agent_mem_lists[agent_name]['obs']))] #get the values, THIS SEEMS TO WORK WITH SHAREABLE LISTS SO THIS IS WHAT WE DO
+
+                if self.one_hot_encode_agent_ids:
+                    cathegorical = bin_array(i, self.num_one_hot_bits).tolist()
+                    agent_obs.expand(cathegorical)
+
                 self._obs[agent_name] = np.array(agent_obs)
                 # self._obs[agent_name] = np.expand_dims(agent_obs, axis=0)
                 self.agent_mem_lists[agent_name]['obs'][0] = False #Set flag to false, obs were read and are ready to be written again
@@ -322,59 +332,59 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
             # print('self._obs after', self._obs)
             # print('read obs smls')
             return True
-    def _scale_obs(self, obs):
-        """
-        This method scales obs using a running mean and std for each observation
-        It assumes a shared obs space between all agents
-        """
-
-        if not hasattr(self, 'obs_rms'):
-            #check if all obs are the same
-            #agent_obs_names = self.agents_obs_names
-            agent_0 = self.agents[0]
-            agent_0_obs_names = self.agents_obs_names[self.agents[0]]
-            assert all([agent_0_obs_names == self.agents_obs_names[agent] for agent in self.agents]), 'obs spaces are not the same for all agents'
-            obs_shape = self.observation_spaces[agent_0].shape
-
-            obs_names = self.agents_obs_names[agent_0]
-            #for all the obs where we know the maxes and mins, we force them here:
-            obs_forced_max = []
-            obs_forced_min = []
-            for obs_name in obs_names:
-                if 'price' in obs_name:
-                    obs_forced_max.append(0.1449) #ToDo: make sure this is right, and maybe autoupdate?
-                    obs_forced_min.append(0.069)
-                elif 'SoC' in obs_name:
-                    obs_forced_max.append(1.0)
-                    obs_forced_min.append(0.0)
-                elif 'load' in obs_name:
-                    obs_forced_max.append(None) #ToDo: log the value and put it in here
-                    obs_forced_min.append(None)
-                elif 'generation' in obs_name:
-                    obs_forced_max.append(None) #ToDo: log the value and put it in here
-                    obs_forced_min.append(None)
-                elif 'netload' in obs_name:
-                    obs_forced_max.append(None) #ToDo: log the value and put it in here
-                    obs_forced_min.append(None)
-                else:
-                    obs_forced_max.append(None)
-                    obs_forced_min.append(None)
-
-            self.obs_rms = RunningMeanStdMinMax(shape=obs_shape, forced_maxes=np.array(obs_forced_max), forced_mins=np.array(obs_forced_min))
-        #update the running mean and std
-
-        for agent in self.agents:
-            agent_obs = np.array(obs[agent])
-            # expanded_obs = np.expand_dims(np.array(obs[agent]), axis=0)
-            self.obs_rms.update(agent_obs)
-
-        #clip obs for all agents
-        for agent in self.agents:
-            agent_obs = np.array(obs[agent])
-            scaled_agent_obs = (agent_obs - self.obs_rms.mean) / np.sqrt(self.obs_rms.var + 1e-8)
-            obs[agent] = scaled_agent_obs
-
-        return obs
+    # def _scale_obs(self, obs):
+    #     """
+    #     This method scales obs using a running mean and std for each observation
+    #     It assumes a shared obs space between all agents
+    #     """
+    #
+    #     if not hasattr(self, 'obs_rms'):
+    #         #check if all obs are the same
+    #         #agent_obs_names = self.agents_obs_names
+    #         agent_0 = self.agents[0]
+    #         agent_0_obs_names = self.agents_obs_names[self.agents[0]]
+    #         assert all([agent_0_obs_names == self.agents_obs_names[agent] for agent in self.agents]), 'obs spaces are not the same for all agents'
+    #         obs_shape = self.observation_spaces[agent_0].shape if not self.one_hot_encode_agent_ids else self.observation_spaces[agent_0].shape - self.num_one_hot_bits
+    #         full_obs_names = self.agents_obs_names[agent_0]
+    #         obs_names = self.agents_obs_names[agent_0] if not self.one_hot_encode_agent_ids else self.agents_obs_names[agent_0][:-self.num_one_hot_bits]
+    #         #for all the obs where we know the maxes and mins, we force them here:
+    #         obs_forced_max = []
+    #         obs_forced_min = []
+    #         for obs_name in obs_names:
+    #             if 'price' in obs_name:
+    #                 obs_forced_max.append(0.1449) #ToDo: make sure this is right, and maybe autoupdate?
+    #                 obs_forced_min.append(0.069)
+    #             elif 'SoC' in obs_name:
+    #                 obs_forced_max.append(1.0)
+    #                 obs_forced_min.append(0.0)
+    #             elif 'load' in obs_name:
+    #                 obs_forced_max.append(None) #ToDo: log the value and put it in here
+    #                 obs_forced_min.append(None)
+    #             elif 'generation' in obs_name:
+    #                 obs_forced_max.append(None) #ToDo: log the value and put it in here
+    #                 obs_forced_min.append(None)
+    #             elif 'netload' in obs_name:
+    #                 obs_forced_max.append(None) #ToDo: log the value and put it in here
+    #                 obs_forced_min.append(None)
+    #             else:
+    #                 obs_forced_max.append(None)
+    #                 obs_forced_min.append(None)
+    #
+    #         self.obs_rms = RunningMeanStdMinMax(shape=obs_shape, forced_maxes=np.array(obs_forced_max), forced_mins=np.array(obs_forced_min))
+    #     #update the running mean and std
+    #
+    #     for agent in self.agents:
+    #         agent_obs = np.array(obs[agent])
+    #         # expanded_obs = np.expand_dims(np.array(obs[agent]), axis=0)
+    #         self.obs_rms.update(agent_obs)
+    #
+    #     #clip obs for all agents
+    #     for agent in self.agents:
+    #         agent_obs = np.array(obs[agent])
+    #         scaled_agent_obs = (agent_obs - self.obs_rms.mean) / np.sqrt(self.obs_rms.var + 1e-8)
+    #         obs[agent] = scaled_agent_obs
+    #
+    #     return obs
     def _scale_rewards(self, rewards):
         """
         This method scales rewards using a running mean and std
@@ -402,7 +412,7 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
 
     def _get_rewards(self):
         self._read_reward_smls()
-        return self._scale_rewards(self._rewards) if self.normalize_rewards else self._rewards
+        return self._rewards
     @tenacity.retry(wait=tenacity.wait_fixed(0.01)
                           + tenacity.wait_random(0, 0.01),
                     )
@@ -529,14 +539,26 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
         # ToDo: then change action spaces to be able to be multidimensional
 
         self.observation_spaces = {}
+        if self.one_hot_encode_agent_ids:  # append the one-hot-encoding space here
+            num_one_hot_bits = int(np.ceil(np.sqrt(self.num_agents)))
+            self.num_one_hot_bits = num_one_hot_bits
         for agent in self.config['participants']:
             if self.config['participants'][agent]['trader']['type'] == 'gym_agent':
                 try:
-                    self.agents_obs_names[agent] = self.config['participants'][agent]['trader']['observations']
+                    agent_obs_names = self.config['participants'][agent]['trader']['observations']
+                    lows = [-np.inf]*len(agent_obs_names)
+                    highs = [np.inf]*len(agent_obs_names)
+                    if self.one_hot_encode_agent_ids:
+                        for bit in range(num_one_hot_bits):
+                            agent_obs_names.append('Agent_id_bit_' + str(bit))
+                            lows.append(0.0)
+                            highs.append(1.0)
+                    self.agents_obs_names[agent] = agent_obs_names
+
                 except:
                     print('There was a problem loading the config observations')
                 num_agent_obs = len(self.agents_obs_names[agent])
-                agent_obs_space = spaces.Box(low=-np.inf, high=np.inf, shape=(num_agent_obs,))
+                agent_obs_space = spaces.Box(low=np.array(lows), high=np.array(highs), shape=(num_agent_obs,))
                 self.observation_spaces[agent] = agent_obs_space
 
 
