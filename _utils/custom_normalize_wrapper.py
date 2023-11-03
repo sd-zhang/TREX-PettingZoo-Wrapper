@@ -46,6 +46,7 @@ class VecNormalize_excludeBits(VecEnvWrapper):
 
         self.norm_obs = norm_obs
         self.norm_obs_keys = norm_obs_keys
+        self.num_bits = num_bits
         # Check observation spaces
         if self.norm_obs:
             self._sanity_checks()
@@ -68,9 +69,9 @@ class VecNormalize_excludeBits(VecEnvWrapper):
             else:
                 self.obs_spaces = None
                 shape = self.observation_space.shape
-                assert len(shape) == 1, 'at the moment this only supports 1 dimensional observation spaces!!'
-
-                self.obs_rms = RunningMeanStd(shape=self.observation_space.shape)
+                # assert len(shape) == 1, 'at the moment this only supports 1 dimensional observation spaces!!'
+                shape = tuple([shape[0] - num_bits])
+                self.obs_rms = RunningMeanStd(shape=shape)
                 # Update observation space when using image
                 # See GH #1214
                 # This is to raise proper error when
@@ -188,12 +189,16 @@ class VecNormalize_excludeBits(VecEnvWrapper):
 
         if self.training and self.norm_obs:
             if isinstance(obs, dict) and isinstance(self.obs_rms, dict):
-                for key in self.obs_rms.keys():
-                    self.obs_rms[key].update(obs[key])
+                raise NotImplementedError
+                # for key in self.obs_rms.keys():
+                #     self.obs_rms[key].update(obs[key])
             else:
-                self.obs_rms.update(obs)
 
-        obs = self.normalize_obs(obs)
+                sliced_obs = obs[:,:-self.num_bits]
+                self.obs_rms.update(sliced_obs)
+
+                normalized_sliced_obs = self.normalize_obs(sliced_obs)
+                obs[:, :-self.num_bits] = normalized_sliced_obs
 
         if self.training:
             self._update_reward(rewards)
@@ -241,11 +246,12 @@ class VecNormalize_excludeBits(VecEnvWrapper):
         obs_ = deepcopy(obs)
         if self.norm_obs:
             if isinstance(obs, dict) and isinstance(self.obs_rms, dict):
-                # Only normalize the specified keys
-                for key in self.norm_obs_keys:
-                    obs_[key] = self._normalize_obs(obs[key], self.obs_rms[key]).astype(np.float32)
+                raise NotImplementedError
+                # # Only normalize the specified keys
+                # for key in self.norm_obs_keys:
+                #     obs_[key] = self._normalize_obs(obs[key], self.obs_rms[key]).astype(np.float32)
             else:
-                obs_ = self._normalize_obs(obs, self.obs_rms).astype(np.float32)
+                obs_ = self._normalize_obs(obs_, self.obs_rms).astype(np.float32)
         return obs_
 
     def normalize_reward(self, reward: np.ndarray) -> np.ndarray:
@@ -262,10 +268,15 @@ class VecNormalize_excludeBits(VecEnvWrapper):
         obs_ = deepcopy(obs)
         if self.norm_obs:
             if isinstance(obs, dict) and isinstance(self.obs_rms, dict):
-                for key in self.norm_obs_keys:
-                    obs_[key] = self._unnormalize_obs(obs[key], self.obs_rms[key])
+                raise NotImplementedError
+                # for key in self.norm_obs_keys:
+                #     obs_[key] = self._unnormalize_obs(obs[key], self.obs_rms[key])
             else:
-                obs_ = self._unnormalize_obs(obs, self.obs_rms)
+                #ToDo: slice this properly
+                sliced_obs = obs
+                sliced_obs_ = self._unnormalize_obs(sliced_obs, self.obs_rms)
+                #ToDO: then remerge the sliced obs
+                obs_ = sliced_obs_
         return obs_
 
     def unnormalize_reward(self, reward: np.ndarray) -> np.ndarray:
@@ -296,11 +307,17 @@ class VecNormalize_excludeBits(VecEnvWrapper):
         self.returns = np.zeros(self.num_envs)
         if self.training and self.norm_obs:
             if isinstance(obs, dict) and isinstance(self.obs_rms, dict):
-                for key in self.obs_rms.keys():
-                    self.obs_rms[key].update(obs[key])
+                raise NotImplementedError
+                # for key in self.obs_rms.keys():
+                #     self.obs_rms[key].update(obs[key])
             else:
-                self.obs_rms.update(obs)
-        return self.normalize_obs(obs)
+                #ToDo: make sure that this is sliced properly
+                sliced_obs = obs[:, :-self.num_bits]
+                self.obs_rms.update(sliced_obs)
+                normalized_obs = self.normalize_obs(sliced_obs)
+                obs[:, :-self.num_bits] = normalized_obs
+
+        return obs
 
     @staticmethod
     def load(load_path: str, venv: VecEnv) -> "VecNormalize":

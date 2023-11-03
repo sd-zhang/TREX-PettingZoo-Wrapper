@@ -1,5 +1,6 @@
 from trexenv import TrexEnv
 import numpy as np
+import pandas as pd
 
 '''The goal of this piece of code is to show how to:
     - launch the TREX-core (our digityal twin)
@@ -9,6 +10,25 @@ import numpy as np
 # def random_heuristic(action_space, **kwargs):
 #     actions = action_space.sample()
 #     return list(actions)
+
+def reward_recorder(rewards, records, step):
+    assert isinstance(rewards, dict) #assuming PettingZoo format here
+    assert isinstance(records, dict) #records are a dict, too
+    for agent in rewards:
+        if agent not in records:
+            records[agent] = []
+
+        num_steps_recorded = len(records[agent])
+        if num_steps_recorded <= step: #if this is the first time we have this step
+            records[agent].append([])
+            records[agent][step] = [rewards[agent]]
+        else:
+            rewards_record = records[agent][step]
+            rewards_record.append(rewards[agent])
+            records[agent][step] = rewards_record
+
+    return records
+
 
 #ToDo: important note, this does NOT check wether the action space can actually use 0s
 def zero_heuristic(action_spaces, **kwargs):
@@ -110,8 +130,8 @@ def greedy_battery_management_heuristic(action_space, **kwargs):
         # print('agent {} battery goal: {}'.format(agent_name, battery_goal), flush=True)
     return actions
 
-def run_heuristic(heuristic, config_name='GymIntegration_test', action_space_type='continuous', **kwargs):
-    env_args = dict(config_name=config_name, action_space_type=action_space_type, action_space_entries=None)
+def run_heuristic(heuristic, config_name='GymIntegration_test', action_space_type='continuous', record_reward=True, **kwargs):
+    env_args = dict(config_name=config_name, action_space_type=action_space_type, action_space_entries=None, )
     trex_env = TrexEnv(**env_args)
 
     # getting some useful stuff from the environmentxham
@@ -132,6 +152,10 @@ def run_heuristic(heuristic, config_name='GymIntegration_test', action_space_typ
     max_sin = 0
     min_sin = 0
 
+    if record_reward:
+        reward_records = {}
+
+
     for episode in range(episodes):
         obs, info = trex_env.reset()  # this should print out a warning. The reset only resets stuff internally in the gym env, it does not reset the connected TREX-core sim. Steven should be on this but it's not high priority atm
         steps = 0
@@ -151,6 +175,9 @@ def run_heuristic(heuristic, config_name='GymIntegration_test', action_space_typ
             # for agent, action in enumerate(actions):
             #    print('agent: ', agent, ' action: ', action, flush=True)
             obs, reward, terminateds, truncated, info = trex_env.step(actions)
+
+            if record_reward:
+                reward_records = reward_recorder(reward, reward_records, steps)
 
             # print(reward)
 
@@ -188,6 +215,27 @@ def run_heuristic(heuristic, config_name='GymIntegration_test', action_space_typ
     # print('simulation done, closing env')
     trex_env.close()  # ATM it is necessary to do this as LAST step!
 
+    if record_reward:
+            # make sure all the rewards are causal
+        for building in reward_records:
+            if reward_records[building][0][0] != np.mean(reward_records[building][0]):
+                print('correcting building', building, 'step 0 rewards. GO FIX THE BUG U LAZY ASS')
+                reward_records[building][0] = [0]
+
+            for step in range(len(reward_records[building])): #make sure all the rewards are causal
+                step_rewards = reward_records[building][step]
+                if len(set(step_rewards)) != 1:
+                    print('WTFFF')
+
+                reward_records[building][step] = reward_records[building][step][0]
+
+        #save the first element of each run in a csv
+        # row = timesep
+        # column = house name
+
+        dataframe = pd.DataFrame.from_dict(reward_records)
+        csv_path = config_name + '.csv'
+        # dataframe.to_csv(csv_path)
     return agents_episode_returns, agent_names, episode_steps
 
 if __name__ == '__main__':
@@ -211,7 +259,7 @@ if __name__ == '__main__':
 
     # run the constant price baseline
     print('constant price heuristic')
-    agents_episode_returns, agent_names, episode_steps = run_heuristic(heuristic=constant_price_heuristic, config_name='MultiHouseTest_Year')
+    agents_episode_returns, agent_names, episode_steps = run_heuristic(heuristic=constant_price_heuristic, config_name='MultiHouseTest_Month')
 
     median_episode_length = np.median(episode_steps)
     median_episode_lengh_percentage = (1-len(np.where(episode_steps != median_episode_length)[0])/len(episode_steps))*100

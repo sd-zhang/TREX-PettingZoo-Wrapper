@@ -10,7 +10,7 @@ from sb3_contrib import RecurrentPPO
 # from TREX_env._utils.custom_distributions import SquashedDiagGaussianDistribution as Squash
 from TREX_env._utils.ppo_recurrent_custom import RecurrentPPO
 from TREX_env._utils.custom_normalize_wrapper import VecNormalize_excludeBits
-
+from TREX_env._utils.custom_Monitor import Custom_VecMonitor
 # from TREX_env._utils.custom_distributions import SquashedDiagGaussianDistribution
 from stable_baselines3.common.evaluation import evaluate_policy
 from stable_baselines3.common.callbacks import EvalCallback
@@ -26,7 +26,12 @@ if "__main__" == __name__:  # this is needed to make sure the code is not execut
     current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     tboard_logdir = f"runs/{current_time}"
 
-    trex_env = TrexEnv(config_name=config_name, action_space_type='continuous', action_space_entries=None)
+    trex_env = TrexEnv(config_name=config_name,
+                       action_space_type='continuous',
+                       action_space_entries=None,
+                       baseline_offset_rewards=True,
+                       only_positive_rewards=False,
+                       )
     #trex_env = ss.frame_stack_v1(trex_env, 4)
     num_bits = trex_env.num_one_hot_bits
     trex_env = ss.pettingzoo_env_to_vec_env_v1(trex_env)
@@ -43,7 +48,7 @@ if "__main__" == __name__:  # this is needed to make sure the code is not execut
     #             epsilon=1e-08)
     # trex_env = VecFrameStack(trex_env, n_stack=5)
 
-    unnormalized_env = VecMonitor(trex_env, filename=tboard_logdir) #can add extra arguments to monitor in info keywords, look up https://stable-baselines3.readthedocs.io/en/master/_modules/stable_baselines3/common/vec_env/vec_monitor.html
+    unnormalized_env = Custom_VecMonitor(trex_env, filename=tboard_logdir) #can add extra arguments to monitor in info keywords, look up https://stable-baselines3.readthedocs.io/en/master/_modules/stable_baselines3/common/vec_env/vec_monitor.html
     final_env = VecNormalize_excludeBits(unnormalized_env, norm_obs=True, norm_reward=False,
                                         num_bits=num_bits,
                                          clip_obs=1e6, clip_reward=1e6, gamma=0.99, epsilon=1e-08)
@@ -62,6 +67,7 @@ if "__main__" == __name__:  # this is needed to make sure the code is not execut
     policy_kwargs = dict(shared_lstm=False,
                          share_features_extractor=True,
                         lstm_hidden_size=256,
+                         net_arch=dict(pi=[64], vf=[64]),
                          n_lstm_layers=2,
                          # log_std=-10
                          )
@@ -71,10 +77,9 @@ if "__main__" == __name__:  # this is needed to make sure the code is not execut
                          use_sde=False,
                          tensorboard_log=tboard_logdir,
                          device="cuda",
-                         n_epochs=20,
-                         # target_kl=0.04,
+                         n_epochs=8,
+                         target_kl=0.1,
                          n_steps=12*24,
-                         # target_kl=0.05,
                          stats_window_size=1,
                          ent_coef=0.00,
                          # policy_kwargs=policy_dict,

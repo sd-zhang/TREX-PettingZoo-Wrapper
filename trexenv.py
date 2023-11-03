@@ -7,6 +7,7 @@ from gymnasium import spaces
 import numpy as np
 import os
 import multiprocessing as mp
+import pandas as pd
 import time
 import tenacity
 import pettingzoo as pz
@@ -33,6 +34,8 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
                  action_space_type='continuous', #continuous or discrete
                     action_space_entries=None, #only applicable if we have discrete actions
                     one_hot_encode_agent_ids=True,
+                 baseline_offset_rewards=True,
+                 only_positive_rewards=True,
                  **kwargs):
         """
         This method initializes the environment and sets up the action and observation spaces
@@ -53,6 +56,13 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
         del runner
         os.chdir(cur_dir)
 
+
+        self.baseline_offset_rewards = baseline_offset_rewards
+        if self.baseline_offset_rewards:
+            self.baseline_pd = pd.read_csv(config_name + '.csv')
+
+        self.only_positive_rewards = only_positive_rewards #ToDo: raise a warning if these two are not both true
+
         #set up agent names
         self.agents = [agent for agent in self.config['participants'] if self.config['participants'][agent]['trader']['type'] == 'gym_agent']
         # self.num_agents = len(self.agents) might be an attribute thats auto set
@@ -63,7 +73,7 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
         self.one_hot_encode_agent_ids = one_hot_encode_agent_ids
 
         # set up general env variables
-        self.episode_length = int(np.floor(self.config['study']['days'] * 24 * 60 * 60 / self.config['study']['time_step_size']) + 1) #Because the length of an episode is given by the config
+        self.episode_length = int(np.floor(self.config['study']['days'] * 24 * 60 * 60 / self.config['study']['time_step_size']) + 1) #Because the length of an episode is given by the config #ToDO: is this whats causing the issues?!
         self.episode_limit = int(np.floor(self.config['study']['generations'])) #number of max episodes
         self.t_env_steps = 0
         self.episode_current = 0
@@ -155,6 +165,15 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
         # Rewards are going to have to be sent over from the gym trader, which will be able to
         # get information from the reward
         rewards = self._get_rewards()
+        if self.baseline_offset_rewards:
+            for agent in rewards:
+                baseline = self.baseline_pd[agent][self.t_env_steps]
+                rewards[agent] -= baseline
+
+        if self.only_positive_rewards:
+            for agent in rewards:
+                clipped = max(0, rewards[agent])
+                rewards[agent] = clipped
 
         # info:
         # Imma keep it as a open dictionary for now:
@@ -202,10 +221,10 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
             assert self.controller_smls[env_id]['kill'][2] == 'reset', 'reset section not found in envcontroller sml'
             self.controller_smls[env_id]['kill'][3] = True #set the reset flag
 
-        self._force_nonblocking_sml()
-
         # envs_reset = [self.controller_smls[env_id]['kill'][3] for env_id in self.controller_smls]
         self.wait_for_controller_smls()
+
+        self._force_nonblocking_sml()
 
         # print('done reset')
         self._reset_interprocess_memory()
