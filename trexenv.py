@@ -35,7 +35,7 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
                     action_space_entries=None, #only applicable if we have discrete actions
                     one_hot_encode_agent_ids=True,
                  baseline_offset_rewards=True,
-                 only_positive_rewards=True,
+                 only_positive_rewards=False,
                  **kwargs):
         """
         This method initializes the environment and sets up the action and observation spaces

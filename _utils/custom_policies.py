@@ -61,6 +61,8 @@ class RecurrentActorCriticPolicy(ActorCriticPolicy):
         constructor.
     """
 
+    #ToDo: add Layernorm
+
     def __init__(
         self,
         observation_space: spaces.Space,
@@ -85,6 +87,7 @@ class RecurrentActorCriticPolicy(ActorCriticPolicy):
         shared_lstm: bool = False,
         enable_critic_lstm: bool = True,
         lstm_kwargs: Optional[Dict[str, Any]] = None,
+            use_layernorm=True, #added
     ):
         self.lstm_output_dim = lstm_hidden_size
         super().__init__(
@@ -114,8 +117,13 @@ class RecurrentActorCriticPolicy(ActorCriticPolicy):
             self.features_dim,
             lstm_hidden_size,
             num_layers=n_lstm_layers,
+            device='cuda',
             **self.lstm_kwargs,
         )
+
+        self.use_layernorm = use_layernorm
+        if self.use_layernorm:
+            self.layer_norm_actor = nn.LayerNorm(lstm_hidden_size,device='cuda')
         # For the predict() method, to initialize hidden states
         # (n_lstm_layers, batch_size, lstm_hidden_size)
         self.lstm_hidden_state_shape = (n_lstm_layers, 1, lstm_hidden_size)

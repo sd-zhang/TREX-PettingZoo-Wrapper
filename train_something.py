@@ -30,7 +30,6 @@ if "__main__" == __name__:  # this is needed to make sure the code is not execut
                        action_space_type='continuous',
                        action_space_entries=None,
                        baseline_offset_rewards=True,
-                       only_positive_rewards=False,
                        )
     #trex_env = ss.frame_stack_v1(trex_env, 4)
     num_bits = trex_env.num_one_hot_bits
@@ -66,8 +65,8 @@ if "__main__" == __name__:  # this is needed to make sure the code is not execut
     num_actions = final_env.action_space.shape[0]
     policy_kwargs = dict(shared_lstm=False,
                          share_features_extractor=True,
-                        lstm_hidden_size=256,
-                         net_arch=dict(pi=[64], vf=[64]),
+                        lstm_hidden_size=128,
+                         net_arch=dict(pi=[32], vf=[64]),
                          n_lstm_layers=2,
                          # log_std=-10
                          )
@@ -77,13 +76,13 @@ if "__main__" == __name__:  # this is needed to make sure the code is not execut
                          use_sde=False,
                          tensorboard_log=tboard_logdir,
                          device="cuda",
-                         n_epochs=8,
-                         target_kl=0.1,
+                         n_epochs=10,
+                         #target_kl=0.1,
                          n_steps=12*24,
                          stats_window_size=1,
                          ent_coef=0.00,
                          # policy_kwargs=policy_dict,
-                         batch_size=3*24,
+                         batch_size=4*24,
                          recalculate_lstm_states=True,
                          rewards_shift=2,
                          self_bootstrap_dones=True,
