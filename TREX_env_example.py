@@ -131,7 +131,7 @@ def greedy_battery_management_heuristic(action_space, **kwargs):
     return actions
 
 def run_heuristic(heuristic, config_name='GymIntegration_test', action_space_type='continuous', record_reward=True, **kwargs):
-    env_args = dict(config_name=config_name, action_space_type=action_space_type, action_space_entries=None, )
+    env_args = dict(config_name=config_name, action_space_type=action_space_type, action_space_entries=None,baseline_offset_rewards=False, )
     trex_env = TrexEnv(**env_args)
 
     # getting some useful stuff from the environmentxham
@@ -219,7 +219,7 @@ def run_heuristic(heuristic, config_name='GymIntegration_test', action_space_typ
             # make sure all the rewards are causal
         for building in reward_records:
             if reward_records[building][0][0] != np.mean(reward_records[building][0]):
-                print('correcting building', building, 'step 0 rewards. GO FIX THE BUG U LAZY ASS')
+                # print('correcting building', building, 'step 0 rewards. GO FIX THE BUG U LAZY ASS')
                 reward_records[building][0] = [0]
 
             for step in range(len(reward_records[building])): #make sure all the rewards are causal
@@ -235,7 +235,7 @@ def run_heuristic(heuristic, config_name='GymIntegration_test', action_space_typ
 
         dataframe = pd.DataFrame.from_dict(reward_records)
         csv_path = config_name + '.csv'
-        # dataframe.to_csv(csv_path)
+        dataframe.to_csv(csv_path)
     return agents_episode_returns, agent_names, episode_steps
 
 if __name__ == '__main__':

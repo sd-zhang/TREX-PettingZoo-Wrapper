@@ -73,7 +73,7 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
         self.one_hot_encode_agent_ids = one_hot_encode_agent_ids
 
         # set up general env variables
-        self.episode_length = int(np.floor(self.config['study']['days'] * 24 * 60 * 60 / self.config['study']['time_step_size']) + 1) #Because the length of an episode is given by the config #ToDO: is this whats causing the issues?!
+        self.episode_length = int(np.floor(self.config['study']['days'] * 24 * 60 * 60 / self.config['study']['time_step_size'])) #Because the length of an episode is given by the config #ToDO: is this whats causing the issues?!
         self.episode_limit = int(np.floor(self.config['study']['generations'])) #number of max episodes
         self.t_env_steps = 0
         self.episode_current = 0
@@ -165,6 +165,7 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
         # Rewards are going to have to be sent over from the gym trader, which will be able to
         # get information from the reward
         rewards = self._get_rewards()
+        # print(rewards, 'at', self.t_env_steps, 'in env', flush=True)
         if self.baseline_offset_rewards:
             for agent in rewards:
                 baseline = self.baseline_pd[agent][self.t_env_steps]
@@ -217,14 +218,17 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
         else:
             print(self.max_storage, self.min_storage)
 
+        # to reset we irst trigger the reset signnal
+        # then we make sure nothing is blocking
+        # once the reset is confirmed, we then reset the smls
         for env_id in self.env_ids:
             assert self.controller_smls[env_id]['kill'][2] == 'reset', 'reset section not found in envcontroller sml'
             self.controller_smls[env_id]['kill'][3] = True #set the reset flag
 
+        self._force_nonblocking_sml()
+
         # envs_reset = [self.controller_smls[env_id]['kill'][3] for env_id in self.controller_smls]
         self.wait_for_controller_smls()
-
-        self._force_nonblocking_sml()
 
         # print('done reset')
         self._reset_interprocess_memory()
@@ -255,6 +259,7 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
         # print('sending kill signal to trex processes')
         for env_id in self.env_ids:
             self.controller_smls[env_id]['kill'][1] = True #setting the command flag to kill
+
         self._force_nonblocking_sml()
         # print('waiting for trex processes to die')
 
@@ -330,6 +335,8 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
         # print('waiting to read obs smls')
         if not all([self.agent_mem_lists[agent]['obs'][0] for agent in self.agent_mem_lists]):
             raise tenacity.TryAgain
+        elif None in [self.agent_mem_lists[agent]['obs'] for agent in self.agent_mem_lists]: #FixMe: check if this works
+            raise tenacity.TryAgain
         else:
             self._obs = {}
             #after having made sure all are true, we can read the values
@@ -345,6 +352,8 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
                         position_in_obs = len(agent_obs) - self.num_one_hot_bits + index
                         agent_obs[position_in_obs] = float(bit)
 
+                assert None not in agent_obs, 'somehow a none value got thgouth'
+
                 self._obs[agent_name] = np.array(agent_obs)
                 # self._obs[agent_name] = np.expand_dims(agent_obs, axis=0)
                 self.agent_mem_lists[agent_name]['obs'][0] = False #Set flag to false, obs were read and are ready to be written again
@@ -353,59 +362,6 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
             # print('self._obs after', self._obs)
             # print('read obs smls')
             return True
-    # def _scale_obs(self, obs):
-    #     """
-    #     This method scales obs using a running mean and std for each observation
-    #     It assumes a shared obs space between all agents
-    #     """
-    #
-    #     if not hasattr(self, 'obs_rms'):
-    #         #check if all obs are the same
-    #         #agent_obs_names = self.agents_obs_names
-    #         agent_0 = self.agents[0]
-    #         agent_0_obs_names = self.agents_obs_names[self.agents[0]]
-    #         assert all([agent_0_obs_names == self.agents_obs_names[agent] for agent in self.agents]), 'obs spaces are not the same for all agents'
-    #         obs_shape = self.observation_spaces[agent_0].shape if not self.one_hot_encode_agent_ids else self.observation_spaces[agent_0].shape - self.num_one_hot_bits
-    #         full_obs_names = self.agents_obs_names[agent_0]
-    #         obs_names = self.agents_obs_names[agent_0] if not self.one_hot_encode_agent_ids else self.agents_obs_names[agent_0][:-self.num_one_hot_bits]
-    #         #for all the obs where we know the maxes and mins, we force them here:
-    #         obs_forced_max = []
-    #         obs_forced_min = []
-    #         for obs_name in obs_names:
-    #             if 'price' in obs_name:
-    #                 obs_forced_max.append(0.1449) #ToDo: make sure this is right, and maybe autoupdate?
-    #                 obs_forced_min.append(0.069)
-    #             elif 'SoC' in obs_name:
-    #                 obs_forced_max.append(1.0)
-    #                 obs_forced_min.append(0.0)
-    #             elif 'load' in obs_name:
-    #                 obs_forced_max.append(None) #ToDo: log the value and put it in here
-    #                 obs_forced_min.append(None)
-    #             elif 'generation' in obs_name:
-    #                 obs_forced_max.append(None) #ToDo: log the value and put it in here
-    #                 obs_forced_min.append(None)
-    #             elif 'netload' in obs_name:
-    #                 obs_forced_max.append(None) #ToDo: log the value and put it in here
-    #                 obs_forced_min.append(None)
-    #             else:
-    #                 obs_forced_max.append(None)
-    #                 obs_forced_min.append(None)
-    #
-    #         self.obs_rms = RunningMeanStdMinMax(shape=obs_shape, forced_maxes=np.array(obs_forced_max), forced_mins=np.array(obs_forced_min))
-    #     #update the running mean and std
-    #
-    #     for agent in self.agents:
-    #         agent_obs = np.array(obs[agent])
-    #         # expanded_obs = np.expand_dims(np.array(obs[agent]), axis=0)
-    #         self.obs_rms.update(agent_obs)
-    #
-    #     #clip obs for all agents
-    #     for agent in self.agents:
-    #         agent_obs = np.array(obs[agent])
-    #         scaled_agent_obs = (agent_obs - self.obs_rms.mean) / np.sqrt(self.obs_rms.var + 1e-8)
-    #         obs[agent] = scaled_agent_obs
-    #
-    #     return obs
     def _scale_rewards(self, rewards):
         """
         This method scales rewards using a running mean and std
@@ -446,6 +402,8 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
         # agent_status = [self.agent_mem_lists[agent]['rewards'][0] for agent in self.agent_mem_lists] #We expect these to be True by now
         if not all([self.agent_mem_lists[agent]['rewards'][0] for agent in self.agent_mem_lists]):
             raise tenacity.TryAgain
+        elif None in [self.agent_mem_lists[agent]['rewards'] for agent in self.agent_mem_lists]: #FixMe: check if this works
+             raise tenacity.TryAgain
         else:
             self._rewards = {}
             # print('reading reward smls')
@@ -460,11 +418,13 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
             return True
         # print('read reward smls')
 
-    @tenacity.retry(wait=tenacity.wait_fixed(0.01) + tenacity.wait_random(0, 0.01), )
+    @tenacity.retry(wait=tenacity.wait_fixed(0.1) + tenacity.wait_random(0, 0.1), ) #this can afford to be slower in theory
     def wait_for_controller_smls(self):
         # we need the 'kill'[3] to be false
         # ToDo: technically this should be an any?
         if any([self.controller_smls[env_id]['kill'][3] for env_id in self.controller_smls]):
+            # for env_id in self.controller_smls:
+            #    print(self.controller_smls[env_id]['kill'], 'envid:', env_id, flush=True)
             raise tenacity.TryAgain
         else:
             # envs_reset = [self.controller_smls[env_id]['kill'][3] for env_id in self.controller_smls]
@@ -670,29 +630,53 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
             # [0]: ready to be read if True, ready to be written if False
             # [1:]: the values
             try:
-                actions_list = shared_memory.ShareableList([0.0]*length_of_actions, name=actions_name)
+                actions_list = shared_memory.ShareableList([None]*length_of_actions, name=actions_name)
             except:
                 print('found ', actions_name,' already in memory, attaching onto it.')
                 actions_list = shared_memory.ShareableList(name=actions_name)
+                for index in range(len(actions_list)):
+                    actions_list[index] = None
             self.agent_mem_lists[agent]['actions'] = actions_list
             # print(actions_name, flush=True)
 
             try:
-                obs_list = shared_memory.ShareableList([0.0]*length_of_obs, name=obs_name)
+                obs_list = shared_memory.ShareableList([None]*length_of_obs, name=obs_name)
             except:
                 print('found ', obs_name,' already in memory, attaching onto it.')
                 obs_list = shared_memory.ShareableList(name=obs_name)
+                for index in range(len(obs_list)):
+                    obs_list[index] = None
             self.agent_mem_lists[agent]['obs'] = obs_list
             # print(obs_name, flush=True)
             try:
-                reward_list = shared_memory.ShareableList([0.0, 0.0], name=reward_name)
+                reward_list = shared_memory.ShareableList([None, None], name=reward_name)
             except:
                 print('found ', reward_name,' already in memory, attaching onto it.')
                 reward_list = shared_memory.ShareableList(name=reward_name)
+                for index in range(len(reward_list)):
+                    reward_list[index] = None
             self.agent_mem_lists[agent]['rewards'] = reward_list
             # print(reward_name, flush=True)
 
         self._reset_interprocess_memory()
+
+    def _reset_agent_sml(self): #this is a hack to make sure that the smls of the agents are not blocking any type of env command
+        # print('setting flushstate for memlists') #this is  sowe can make sure that at least one step happens
+
+        # all smls have the follwing convention:
+        # [0]: ready to be read if True, ready to be written if False
+        # [1:]: the values
+
+        for agent in self.agent_mem_lists:
+            self.agent_mem_lists[agent]['actions'][0] = False #can be read, doesnt matteranyways
+            for index in range(1, len(self.agent_mem_lists[agent]['actions'])):
+                self.agent_mem_lists[agent]['actions'][index] = None
+            self.agent_mem_lists[agent]['obs'][0] = False #shoudl be written
+            for index in range(1, len(self.agent_mem_lists[agent]['obs'])):
+                self.agent_mem_lists[agent]['obs'][index] = None
+            self.agent_mem_lists[agent]['rewards'][0] = False
+            for index in range(1, len(self.agent_mem_lists[agent]['rewards'])):
+                self.agent_mem_lists[agent]['rewards'][index] = None
 
     def _force_nonblocking_sml(self): #this is a hack to make sure that the smls of the agents are not blocking any type of env command
         # print('setting flushstate for memlists') #this is  sowe can make sure that at least one step happens
@@ -700,16 +684,13 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
             self.agent_mem_lists[agent]['actions'][0] = True #can be read, doesnt matteranyways
             self.agent_mem_lists[agent]['obs'][0] = False #shoudl be written
             self.agent_mem_lists[agent]['rewards'][0] = False
+
     def _reset_interprocess_memory(self):
         for env_id in self.controller_smls:
             self.controller_smls[env_id]['kill'][1] = False # kill sim command
             self.controller_smls[env_id]['kill'][3] = False # reset sim command
 
-        # [0]: ready to be read if True, ready to be written if False
-        for agent in self.agent_mem_lists:
-            self.agent_mem_lists[agent]['actions'][0] = False
-            self.agent_mem_lists[agent]['obs'][0] = True
-            self.agent_mem_lists[agent]['rewards'][0] = True
+        self._reset_agent_sml()
 
 
 

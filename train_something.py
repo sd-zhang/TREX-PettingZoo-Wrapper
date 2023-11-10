@@ -46,7 +46,6 @@ if "__main__" == __name__:  # this is needed to make sure the code is not execut
     # trex_env = VecNormalize(trex_env, norm_obs=True, norm_reward=False, clip_obs=np.inf, clip_reward=np.inf, gamma=0.99,
     #             epsilon=1e-08)
     # trex_env = VecFrameStack(trex_env, n_stack=5)
-
     unnormalized_env = Custom_VecMonitor(trex_env, filename=tboard_logdir) #can add extra arguments to monitor in info keywords, look up https://stable-baselines3.readthedocs.io/en/master/_modules/stable_baselines3/common/vec_env/vec_monitor.html
     final_env = VecNormalize_excludeBits(unnormalized_env, norm_obs=True, norm_reward=False,
                                         num_bits=num_bits,
@@ -85,7 +84,7 @@ if "__main__" == __name__:  # this is needed to make sure the code is not execut
                          batch_size=4*24,
                          recalculate_lstm_states=True,
                          rewards_shift=2,
-                         self_bootstrap_dones=True,
+                         self_bootstrap_dones=False,
                          )
 
     model.policy.action_dist = SquashedDiagGaussianDistribution(action_dim=num_actions, epsilon=1e-5)
