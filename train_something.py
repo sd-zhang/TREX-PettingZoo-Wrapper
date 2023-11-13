@@ -81,7 +81,7 @@ if "__main__" == __name__:  # this is needed to make sure the code is not execut
                          stats_window_size=1,
                          ent_coef=0.00,
                          # policy_kwargs=policy_dict,
-                         batch_size=4*24,
+                         batch_size=3*24,
                          recalculate_lstm_states=True,
                          rewards_shift=2,
                          self_bootstrap_dones=False,

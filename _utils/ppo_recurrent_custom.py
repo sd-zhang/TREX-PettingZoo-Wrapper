@@ -197,6 +197,7 @@ class RecurrentPPO(OnPolicyAlgorithm):
         )
             self.partial_rollout_episode_buffer['obs'] = []
             self.partial_rollout_episode_buffer['episode_starts'] = []
+            self.partial_rollout_episode_buffer['rewards'] = []
     #         self.partial_rollout_episode_buffer['states'] = [] #used for debugging purposes
 
         hidden_state_buffer_shape = (self.n_steps, lstm.num_layers, self.n_envs, lstm.hidden_size)
@@ -264,12 +265,32 @@ class RecurrentPPO(OnPolicyAlgorithm):
         if self.recalculate_lstm_states and len(self.partial_rollout_episode_buffer['obs']) > 0:
             with th.no_grad():
                 for step in range(len(self.partial_rollout_episode_buffer['obs'])):
-                    obs_tensor = self.partial_rollout_episode_buffer['obs'][step]
-                    episode_starts = self.partial_rollout_episode_buffer['episode_starts'][step]
-                    _actions, _values, _log_probs, _lstm_states = self.policy.forward(obs_tensor,
-                                                                                      self.partial_rollout_episode_buffer['zero_lstm_states'] if step == 0 else _lstm_states,
-                                                                                      episode_starts)
-                self._last_lstm_states = _lstm_states
+                    _obs_tensor = self.partial_rollout_episode_buffer['obs'][step]
+                    _episode_starts = self.partial_rollout_episode_buffer['episode_starts'][step]
+                    lstm_input_states = self.partial_rollout_episode_buffer['zero_lstm_states'] if step == 0 else _lstm_output_states
+
+                    _actions, _values, _log_probs, _lstm_output_states = self.policy.forward(_obs_tensor,
+                                                                                      lstm_input_states,
+                                                                                      _episode_starts)
+
+                    if step >= len(self.partial_rollout_episode_buffer['obs']) - self.rewards_shift:
+                        # add stuff to the buffer
+                        step_dict = dict()
+
+                        step_dict['last_obs'] = _obs_tensor.cpu().numpy()
+                        step_dict['actions'] = _actions.cpu().numpy()
+                        step_dict['log_probs'] = _log_probs
+                        step_dict['rewards'] = deepcopy(self.partial_rollout_episode_buffer['rewards'][step])  # This is what we are shifting all other things for
+                        step_dict['values'] = _values  # This needs to be shifted, too
+                        step_dict['last_dones'] = _episode_starts.cpu().numpy()  # we have to shift this, too because this affects value calcs
+                        step_dict['last_lstm_states'] = _lstm_output_states
+
+                        self.rewards_shift_fifo.append(step_dict)
+                        del self.rewards_shift_fifo[0]
+
+                        n_steps += 1
+
+                self._last_lstm_states = _lstm_output_states
 
 
         lstm_states = deepcopy(self._last_lstm_states)
@@ -282,12 +303,10 @@ class RecurrentPPO(OnPolicyAlgorithm):
 
             with th.no_grad():
                 # Convert to pytorch tensor or to TensorDict
-                obs_tensor = obs_as_tensor(self._last_obs, self.device)
-                episode_starts = th.tensor(self._last_episode_starts, dtype=th.float32, device=self.device) #Episode starts means that the LSTM state gets reset
-
-                if self.recalculate_lstm_states:
-                    self.partial_rollout_episode_buffer['obs'].append(obs_tensor)
-                    self.partial_rollout_episode_buffer['episode_starts'].append(episode_starts)
+                last_obs = deepcopy(self._last_obs)
+                obs_tensor = obs_as_tensor(last_obs, self.device)
+                last_starts = deepcopy(self._last_episode_starts)
+                episode_starts = th.tensor(last_starts, dtype=th.float32, device=self.device) #Episode starts means that the LSTM state gets reset
 
                 actions, values, log_probs, lstm_states = self.policy.forward(obs_tensor, lstm_states, episode_starts)
                 # self.partial_rollout_episode_buffer['states'].append(lstm_states) #for debugging purposes only
@@ -301,6 +320,12 @@ class RecurrentPPO(OnPolicyAlgorithm):
                 clipped_actions = np.clip(actions, self.action_space.low, self.action_space.high)
 
             new_obs, rewards, dones, infos = env.step(clipped_actions)
+
+            if self.recalculate_lstm_states:
+                with th.no_grad():
+                    self.partial_rollout_episode_buffer['obs'].append(obs_tensor.clone())
+                    self.partial_rollout_episode_buffer['episode_starts'].append(episode_starts.clone())
+                    self.partial_rollout_episode_buffer['rewards'].append(rewards)
 
             self.num_timesteps += env.num_envs
 
@@ -338,13 +363,14 @@ class RecurrentPPO(OnPolicyAlgorithm):
 
             if self.rewards_shift > 0: #If we're shifting rewards, we're also shifting dones
                 step_dict = dict()
-                step_dict['last_obs'] = self._last_obs
-                step_dict['actions'] = actions
-                step_dict['log_probs'] = log_probs
-                step_dict['rewards'] = rewards #This is what we are shifting all other things for
-                step_dict['values'] = values #This needs to be shifted, too
-                step_dict['last_dones'] = self._last_episode_starts #we have to shift this, too because this affects value calcs
-                step_dict['last_lstm_states'] = self._last_lstm_states
+
+                step_dict['last_obs'] = deepcopy(self._last_obs)
+                step_dict['actions'] = deepcopy(actions)
+                step_dict['log_probs'] = deepcopy(log_probs)
+                step_dict['rewards'] = deepcopy(rewards) #This is what we are shifting all other things for
+                step_dict['values'] = deepcopy(values) #This needs to be shifted, too
+                step_dict['last_dones'] = deepcopy(self._last_episode_starts) #we have to shift this, too because this affects value calcs
+                step_dict['last_lstm_states'] = deepcopy(self._last_lstm_states)
 
                 self.rewards_shift_fifo.append(step_dict)
 
@@ -354,9 +380,11 @@ class RecurrentPPO(OnPolicyAlgorithm):
                     # our current batched obs are at [0]
                     # so the bootstrap will be at [1]
                     with th.no_grad():
-                        _obs = obs_as_tensor(self.rewards_shift_fifo[1]['last_obs'], self.device)
+                        _obs = deepcopy(self.rewards_shift_fifo[1]['last_obs'])
+                        _obs = obs_as_tensor(_obs, self.device)
                         _lstm_states = deepcopy(self.rewards_shift_fifo[1]['last_lstm_states'])
-                        _last_dones =  th.tensor(self.rewards_shift_fifo[1]['last_dones'], dtype=th.float32, device=self.device)
+                        _last_dones = deepcopy(self.rewards_shift_fifo[1]['last_dones'])
+                        _last_dones =  th.tensor(_last_dones, dtype=th.float32, device=self.device)
                         actions, terminal_value, log_probs, lstm_states = self.policy.forward(_obs, _lstm_states, _last_dones)
                         value_bootstrap_squeezed = np.squeeze( terminal_value.cpu().numpy())
                         rewards = self.rewards_shift_fifo[self.rewards_shift]['rewards']
@@ -422,6 +450,7 @@ class RecurrentPPO(OnPolicyAlgorithm):
                 print('resetting partial buffer') #ToDo: remove after some tests
                 self.partial_rollout_episode_buffer['obs'] = []
                 self.partial_rollout_episode_buffer['episode_starts'] = []
+                self.partial_rollout_episode_buffer['rewards'] = []
 
             # whenever the env resets, we need to make sure to collect up to actual rewards first!
             if all(dones) and self.rewards_shift>0:
