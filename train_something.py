@@ -30,9 +30,13 @@ if "__main__" == __name__:  # this is needed to make sure the code is not execut
                        action_space_type='continuous',
                        action_space_entries=None,
                        baseline_offset_rewards=True,
+                       one_hot_encode_agent_ids=True,
                        )
     #trex_env = ss.frame_stack_v1(trex_env, 4)
+
     num_bits = trex_env.num_one_hot_bits
+    print('number of one hot bits', num_bits)
+
     trex_env = ss.pettingzoo_env_to_vec_env_v1(trex_env)
 
     # trex_env = ss.flatten_v0(trex_env, )
@@ -43,6 +47,8 @@ if "__main__" == __name__:  # this is needed to make sure the code is not execut
     trex_env = SB3VecEnvWrapper(trex_env)
     num_envs = trex_env.num_envs
     print('number of pseudo envs', num_envs)
+
+
     # trex_env = VecNormalize(trex_env, norm_obs=True, norm_reward=False, clip_obs=np.inf, clip_reward=np.inf, gamma=0.99,
     #             epsilon=1e-08)
     # trex_env = VecFrameStack(trex_env, n_stack=5)

@@ -32,8 +32,8 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
                  config_name=None, #ToDo: add a default here
                  run_name=hash(os.times()) % 100, #ToDo: add a default here
                  action_space_type='continuous', #continuous or discrete
-                    action_space_entries=None, #only applicable if we have discrete actions
-                    one_hot_encode_agent_ids=True,
+                 action_space_entries=None, #only applicable if we have discrete actions
+                 one_hot_encode_agent_ids=True,
                  baseline_offset_rewards=True,
                  only_positive_rewards=False,
                  **kwargs):
@@ -89,6 +89,7 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
         if self.action_space_type == 'discrete':
             assert isinstance(action_space_entries, int), 'action_space_entries must be specified in the environment yaml for discrete action space'
             self.action_space_entries = action_space_entries
+
         self._setup_spaces()
 
         # set up env_id for the memory lists, etc

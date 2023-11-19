@@ -29,6 +29,23 @@ def reward_recorder(rewards, records, step):
 
     return records
 
+# obs are recorded in 24h histograms over all agents, for each observation key
+def obs_recorder(obs, records, step, obs_names):
+    assert isinstance(obs, dict) #assuming PettingZoo format here
+    assert isinstance(records, dict) #records are a dict, too
+    daytime_hour = step % 24
+    for agent in obs:
+        for obs_index, obs_key in enumerate(obs_names[agent]):
+            if obs_key not in records:
+                records[obs_key] = {}
+
+            if daytime_hour not in records[obs_key]:
+                records[obs_key][daytime_hour] = []
+
+                records[obs_key][daytime_hour].append(obs[agent][obs_index])
+
+    return records
+
 
 #ToDo: important note, this does NOT check wether the action space can actually use 0s
 def zero_heuristic(action_spaces, **kwargs):
@@ -70,26 +87,11 @@ def constant_price_heuristic(action_spaces, price=0.11, **kwargs):
             SoC = agent_obs[SoC_index]
             # print('agent {} has SoC {}'.format(agent_name, SoC))
             battery_index = agent_action_keys[agent_name].index('storage')
-            actions[agent_name][battery_index] = 0 # -min(1.0, max(netload_deliver/3000, -1.0))
+            actions[agent_name][battery_index] = -netload_settle/3000
 
-
-
-            # for 10 houses
-            # no market                                 mean rewards for each episode:  [-6.90361558 -6.98649693 -6.98649693 -6.98649693 -6.98649693] (3 days)
-            # market, grid rewards, newbat logic        mean rewards for each episode:  [-6.90612964 -6.98901099 -6.98901099 -6.98901099 -6.98901099] (3 days)
-            # market, grid equivalent, simplemarket     mean rewards for each episode:  [-6.90910239 -6.99198374 -6.99198374 -6.99198374 -6.99198374] (3 days)
-
-            # no market                                 quantities bought:              [55562.59688 56134.58691 56134.58691 56134.58691 56134.58691] (3 days)
-            # market                                    quantities bought:              [55608.75353 56180.74356 56180.74356 56180.74356 56180.74356] (3 days)
-
-            # no market:                                quantities bought:              [5936.03232 5936.03232 5936.03232 5936.03232 5936.03232] (1 step)
-            # market:                                   quantities bought:              [5417.199   5936.03232 5936.03232 5936.03232 5936.03232] (1 step)
-
-            # no market:                                quantities bought:              [6807.99066 7290.57566 7290.57566 7290.57566 7290.57566] (2 step)
-            # market:                                   quantities bought:              [6818.30899 7300.89399 7300.89399 7300.89399 7300.89399] (2 step)
-
-            # difference between gen0 and gen1: -571.9900300000008 (except for no market 1 step?!) --> some wierd ass resetting issue? we're dropping something OR we're losing sth?
-            # difference between no market and market: -46.15665000000445 (for 3 days) and -10.31832999999915 for 2steps
+            # netload deliver: 0.3
+            # 0 action: 0
+            # - netload settle: 8.129579796950543
 
 
 
@@ -130,8 +132,8 @@ def greedy_battery_management_heuristic(action_space, **kwargs):
         # print('agent {} battery goal: {}'.format(agent_name, battery_goal), flush=True)
     return actions
 
-def run_heuristic(heuristic, config_name='GymIntegration_test', action_space_type='continuous', record_reward=True, **kwargs):
-    env_args = dict(config_name=config_name, action_space_type=action_space_type, action_space_entries=None,baseline_offset_rewards=False, )
+def run_heuristic(heuristic, config_name='GymIntegration_test', action_space_type='continuous', record_reward=False, record_obs=True, **kwargs):
+    env_args = dict(config_name=config_name, action_space_type=action_space_type, action_space_entries=None)
     trex_env = TrexEnv(**env_args)
 
     # getting some useful stuff from the environmentxham
@@ -146,7 +148,7 @@ def run_heuristic(heuristic, config_name='GymIntegration_test', action_space_typ
     episode_length = trex_env.episode_length # this is the length of the episode, also defined in the config
     num_agents = trex_env.num_agents  # because agents are defined in the config
 
-    episodes = 2# we can also get treex_env.episode_limit, which is the number of episodes defined in the config
+    episodes = 5# we can also get treex_env.episode_limit, which is the number of episodes defined in the config
     agents_episode_returns = {agent_name: [] for agent_name in agent_names}
     episode_steps = []
     max_sin = 0
@@ -155,9 +157,16 @@ def run_heuristic(heuristic, config_name='GymIntegration_test', action_space_typ
     if record_reward:
         reward_records = {}
 
+    if record_obs:
+        obs_records = {}
+
 
     for episode in range(episodes):
         obs, info = trex_env.reset()  # this should print out a warning. The reset only resets stuff internally in the gym env, it does not reset the connected TREX-core sim. Steven should be on this but it's not high priority atm
+
+        if record_obs:
+            obs_records = obs_recorder(obs, obs_records, 0, agents_obs_keys)
+
         steps = 0
         terminated = False
         episode_cumulative_reward = {agent_name: 0 for agent_name in agent_names}
@@ -178,6 +187,8 @@ def run_heuristic(heuristic, config_name='GymIntegration_test', action_space_typ
 
             if record_reward:
                 reward_records = reward_recorder(reward, reward_records, steps)
+            if record_obs:
+                obs_records = obs_recorder(obs, obs_records, steps,agents_obs_keys)
 
             # print(reward)
 
@@ -207,6 +218,13 @@ def run_heuristic(heuristic, config_name='GymIntegration_test', action_space_typ
             #    print('done at step: ', steps, 'expected to be at', episode_length, flush=True)
             steps += 1
 
+        if record_obs: #now we assemble the histogram and print it all out
+                for obs_key in obs_records:
+                    for hour in range(24):
+                        obs_records[obs_key][hour] = np.mean(obs_records[obs_key][hour])
+                    print('obs_records for', obs_key, ':', obs_records[obs_key])
+
+
         for agent in episode_cumulative_reward:
             agent_return = episode_cumulative_reward[agent]
             agents_episode_returns[agent].append(agent_return)
@@ -232,7 +250,7 @@ def run_heuristic(heuristic, config_name='GymIntegration_test', action_space_typ
         #save the first element of each run in a csv
         # row = timesep
         # column = house name
-
+        print('Recording rewards!! Make sure this is only toggled when we want to record a new baseline!!!')
         dataframe = pd.DataFrame.from_dict(reward_records)
         csv_path = config_name + '.csv'
         dataframe.to_csv(csv_path)
@@ -259,7 +277,7 @@ if __name__ == '__main__':
 
     # run the constant price baseline
     print('constant price heuristic')
-    agents_episode_returns, agent_names, episode_steps = run_heuristic(heuristic=constant_price_heuristic, config_name='MultiHouseTest_Month')
+    agents_episode_returns, agent_names, episode_steps = run_heuristic(heuristic=constant_price_heuristic, config_name='MultiHouseTest_Month_NewMarket')
 
     median_episode_length = np.median(episode_steps)
     median_episode_lengh_percentage = (1-len(np.where(episode_steps != median_episode_length)[0])/len(episode_steps))*100

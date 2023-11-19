@@ -4,3 +4,5 @@ runs/
 models/
 
 logs/
+
+__pycache__/
