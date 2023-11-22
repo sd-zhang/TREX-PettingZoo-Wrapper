@@ -21,7 +21,7 @@ from stable_baselines3.her.her_replay_buffer import HerReplayBuffer
 from gymnasium.wrappers import FrameStack, NormalizeObservation
 
 if "__main__" == __name__:  # this is needed to make sure the code is not executed when imported
-    config_name = "MultiHouseTest_Month"
+    config_name = "MultiHouseTest_Month_NewMarket"
 
     current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     tboard_logdir = f"runs/{current_time}"
@@ -35,6 +35,9 @@ if "__main__" == __name__:  # this is needed to make sure the code is not execut
     #trex_env = ss.frame_stack_v1(trex_env, 4)
 
     num_bits = trex_env.num_one_hot_bits
+    agents_obs_keys = trex_env.agents_obs_names
+    agents = list(key for key in agents_obs_keys.keys())
+    agents_obs_keys = agents_obs_keys[agents[0]]
     print('number of one hot bits', num_bits)
 
     trex_env = ss.pettingzoo_env_to_vec_env_v1(trex_env)
@@ -52,7 +55,7 @@ if "__main__" == __name__:  # this is needed to make sure the code is not execut
     # trex_env = VecNormalize(trex_env, norm_obs=True, norm_reward=False, clip_obs=np.inf, clip_reward=np.inf, gamma=0.99,
     #             epsilon=1e-08)
     # trex_env = VecFrameStack(trex_env, n_stack=5)
-    unnormalized_env = Custom_VecMonitor(trex_env, filename=tboard_logdir) #can add extra arguments to monitor in info keywords, look up https://stable-baselines3.readthedocs.io/en/master/_modules/stable_baselines3/common/vec_env/vec_monitor.html
+    unnormalized_env = Custom_VecMonitor(trex_env, filename=tboard_logdir, obs_names=agents_obs_keys) #can add extra arguments to monitor in info keywords, look up https://stable-baselines3.readthedocs.io/en/master/_modules/stable_baselines3/common/vec_env/vec_monitor.html
     final_env = VecNormalize_excludeBits(unnormalized_env, norm_obs=True, norm_reward=False,
                                         num_bits=num_bits,
                                          clip_obs=1e6, clip_reward=1e6, gamma=0.99, epsilon=1e-08)
@@ -70,8 +73,8 @@ if "__main__" == __name__:  # this is needed to make sure the code is not execut
     num_actions = final_env.action_space.shape[0]
     policy_kwargs = dict(shared_lstm=False,
                          share_features_extractor=True,
-                        lstm_hidden_size=128,
-                         net_arch=dict(pi=[32], vf=[64]),
+                        lstm_hidden_size=256,
+                         net_arch=dict(pi=[64], vf=[64]),
                          n_lstm_layers=2,
                          # log_std=-10
                          )
@@ -81,16 +84,16 @@ if "__main__" == __name__:  # this is needed to make sure the code is not execut
                          use_sde=False,
                          tensorboard_log=tboard_logdir,
                          device="cuda",
-                         n_epochs=10,
-                         #target_kl=0.1,
-                         n_steps=12*24,
+                         n_epochs=4,
+                         # target_kl=0.05,
+                         n_steps=9*24,
                          stats_window_size=1,
                          ent_coef=0.00,
                          # policy_kwargs=policy_dict,
                          batch_size=3*24,
                          recalculate_lstm_states=True,
                          rewards_shift=2,
-                         self_bootstrap_dones=False,
+                         self_bootstrap_dones=True,
                          )
 
     model.policy.action_dist = SquashedDiagGaussianDistribution(action_dim=num_actions, epsilon=1e-5)
