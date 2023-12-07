@@ -12,7 +12,7 @@ from stable_baselines3.common.running_mean_std import RunningMeanStd
 from stable_baselines3.common.vec_env.base_vec_env import VecEnv, VecEnvStepReturn, VecEnvWrapper
 
 
-class VecNormalize_excludeBits(VecEnvWrapper):
+class VecNormalize(VecEnvWrapper):
     """
     A moving average, normalizing wrapper for vectorized environment.
     has support for saving/loading moving average,

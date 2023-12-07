@@ -140,9 +140,10 @@ class Custom_VecMonitor(VecEnvWrapper):
                     # ToDo: calculate average daily peak export
                     # the daily peak export is the peak export of the community in a day, a day is defined as 24 hours
                     # first we calculate the peaks of each day, from the community netloads
-                    daily_peak_exports = [np.min(self.community_netloads[i:i+24]) for i in range(0, len(self.community_netloads), 24)]
+                    daily_peak_exports = [-np.min(self.community_netloads[i:i+24]) for i in range(0, len(self.community_netloads), 24)]
                     # then we calculate the average of the daily peaks
                     avg_daily_peak_export = np.mean(daily_peak_exports)
+                    self.results_writer.writer.add_scalar('Power Quality/Average_daily_peak_export', avg_daily_peak_export, self.episode_count)
 
                     # ToDo: calculate total peak load
                     total_peak_load = np.max(self.community_netloads)
@@ -155,7 +156,7 @@ class Custom_VecMonitor(VecEnvWrapper):
                     #ToDo: calculate average daily ramping rate
                     # the ramping rate is the delta between timesteps, so the average daily ramping rate is the average of the ramping rates of all timesteps in a day
                     ramping_rates = np.abs(np.diff(self.community_netloads))
-                    avg_daily_ramping_rate = np.mean(ramping_rates) * 24
+                    avg_daily_ramping_rate = np.mean(ramping_rates)
                     self.results_writer.writer.add_scalar('Power Quality/Average_daily_ramping_rate', avg_daily_ramping_rate, self.episode_count)
 
                     #ToDo: calculate daily load factor

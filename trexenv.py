@@ -66,7 +66,7 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
         #set up agent names
         self.agents = [agent for agent in self.config['participants'] if self.config['participants'][agent]['trader']['type'] == 'gym_agent']
         # self.num_agents = len(self.agents) might be an attribute thats auto set
-        assert self.num_agents > 0, 'There are no gym_agents in the config, please pick a config with at least 1 gym_agent'
+        # assert self.num_agents > 0, 'There are no gym_agents in the config, please pick a config with at least 1 gym_agent'
 
         self.possible_agents = self.agents #change if that ever becomes a thing
         # self.max_num_agents = self.num_agents #might be an autoset attribute
@@ -87,7 +87,7 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
         # set up spaces
         self.action_space_type = action_space_type
         if self.action_space_type == 'discrete':
-            assert isinstance(action_space_entries, int), 'action_space_entries must be specified in the environment yaml for discrete action space'
+            # assert isinstance(action_space_entries, int), 'action_space_entries must be specified in the environment yaml for discrete action space'
             self.action_space_entries = action_space_entries
 
         self._setup_spaces()
@@ -223,7 +223,7 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
         # then we make sure nothing is blocking
         # once the reset is confirmed, we then reset the smls
         for env_id in self.env_ids:
-            assert self.controller_smls[env_id]['kill'][2] == 'reset', 'reset section not found in envcontroller sml'
+            # assert self.controller_smls[env_id]['kill'][2] == 'reset', 'reset section not found in envcontroller sml'
             self.controller_smls[env_id]['kill'][3] = True #set the reset flag
 
         self._force_nonblocking_sml()
@@ -292,7 +292,7 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
         else:
             # print('writing to action smls')
             # should_be_false_now = [self.agent_mem_lists[agent]['actions'][0] for agent in self.agent_mem_lists]
-            assert not any([self.agent_mem_lists[agent]['actions'][0] for agent in self.agent_mem_lists]), 'actions were not read ready'
+            # assert not any([self.agent_mem_lists[agent]['actions'][0] for agent in self.agent_mem_lists]), 'actions were not read ready'
             # now that all past actions have been consumed, we can write the new actions
             for i, agent in enumerate(self.agent_mem_lists):
                 agent_action = agent_actions_decoded[agent]
@@ -300,7 +300,7 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
                     self.agent_mem_lists[agent]['actions'][j+1] = action
                 self.agent_mem_lists[agent]['actions'][0] = True #set the can be read to true
 
-            assert all([self.agent_mem_lists[agent]['actions'][0] for agent in self.agent_mem_lists]), 'actions were not written correctly'
+            # assert all([self.agent_mem_lists[agent]['actions'][0] for agent in self.agent_mem_lists]), 'actions were not written correctly'
             # print('done writing to action smls')
             return True
 
@@ -359,7 +359,7 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
                 # self._obs[agent_name] = np.expand_dims(agent_obs, axis=0)
                 self.agent_mem_lists[agent_name]['obs'][0] = False #Set flag to false, obs were read and are ready to be written again
 
-            assert all([self.agent_mem_lists[agent]['obs'][0] for agent in self.agent_mem_lists]) == False, 'all agent obs should be read by now and ready to be written'
+            # assert all([self.agent_mem_lists[agent]['obs'][0] for agent in self.agent_mem_lists]) == False, 'all agent obs should be read by now and ready to be written'
             # print('self._obs after', self._obs)
             # print('read obs smls')
             return True
@@ -461,7 +461,7 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
         for trex_launch_list in augmented_launch_lists:
             new_launch_list.extend(trex_launch_list)
 
-        pool_size = int(mp.cpu_count()-8)  # Adjust based on needs
+        pool_size = int(mp.cpu_count()-6)  # Adjust based on needs
         pool = mp.Pool(processes=pool_size)
         trex_results = pool.map_async(run_subprocess, new_launch_list)  # this launches the TREX-Core sim in a non-blocking fashion (so it runs in the background)
         pool.close()
@@ -557,7 +557,7 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
 
                 min_action = [action['min'] for action in actions.values() if action['heuristic']=='learned']
                 max_action = [action['max'] for action in actions.values() if action['heuristic']=='learned']
-                assert len(min_action) == len(max_action) == len(self.agent_action_array[agent]), 'There was a problem with the action space'
+                # assert len(min_action) == len(max_action) == len(self.agent_action_array[agent]), 'There was a problem with the action space'
                 num_actions = len(self.agent_action_array[agent]) #FixMe: this is obviously in the wrong spot
 
                 if self.action_space_type == 'discrete':

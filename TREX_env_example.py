@@ -133,7 +133,7 @@ def greedy_battery_management_heuristic(action_space, **kwargs):
     return actions
 
 def run_heuristic(heuristic, config_name='GymIntegration_test', action_space_type='continuous', record_reward=False, record_obs=False, **kwargs):
-    env_args = dict(config_name=config_name, action_space_type=action_space_type, action_space_entries=None)
+    env_args = dict(config_name=config_name, action_space_type=action_space_type, action_space_entries=None, baseline_offset_rewards=True)
     trex_env = TrexEnv(**env_args)
 
     # getting some useful stuff from the environmentxham
@@ -148,7 +148,7 @@ def run_heuristic(heuristic, config_name='GymIntegration_test', action_space_typ
     episode_length = trex_env.episode_length # this is the length of the episode, also defined in the config
     num_agents = trex_env.num_agents  # because agents are defined in the config
 
-    episodes = 20# we can also get treex_env.episode_limit, which is the number of episodes defined in the config
+    episodes = 2# we can also get treex_env.episode_limit, which is the number of episodes defined in the config
     agents_episode_returns = {agent_name: [] for agent_name in agent_names}
     episode_steps = []
     max_sin = 0
@@ -278,7 +278,7 @@ if __name__ == '__main__':
     # run the constant price baseline
     print('constant price heuristic')
     agents_episode_returns, agent_names, episode_steps = run_heuristic(heuristic=constant_price_heuristic,
-                                                                       config_name='Debug_MultiHouseTest_Month_NewMarket')
+                                                                       config_name='MultiHouseTest_Year_NewMarket',)
 
     median_episode_length = np.median(episode_steps)
     median_episode_lengh_percentage = (1-len(np.where(episode_steps != median_episode_length)[0])/len(episode_steps))*100
