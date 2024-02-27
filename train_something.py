@@ -112,37 +112,37 @@ if "__main__" == __name__:  # this is needed to make sure the code is not execut
                          )
     # if we have a models folder, then we load the most recent model
     save_path = 'PPO_Models_schedule_2'
-    if os.path.exists(save_path):
-        # list all saved model zip files in the model folder
-        model_list = [model for model in os.listdir(save_path) if model.endswith('.zip')]
-        # sort the list by date, most recent first
-        model_list.sort(key=lambda x: os.path.getmtime(os.path.join(save_path, x)), reverse=True)
-        # load the most recent model
-        model_to_load = model_list[0]
-        # remove the zip ending
-        model_to_load = model_to_load[:-4]
-        model_path = os.path.join(save_path, model_to_load)
-        print('loading model', model_path)
-        model = RecurrentPPO.load(model_path, env=final_env, tensorboard_log=tboard_logdir, device="cuda", verbose=0)
-    else:
-        model = RecurrentPPO('MlpLstmPolicy',
-                         final_env,
-                         verbose=0,
-                         use_sde=False,
-                         tensorboard_log=tboard_logdir,
-                         device="cuda",
-                         n_epochs=4,
-                         # target_kl=0.05,
-                             learning_rate=exponential_schedule(0.0003, 15, 0.69),
-                         n_steps=9*24,
-                         stats_window_size=1,
-                         ent_coef=0.00,
-                         # policy_kwargs=policy_dict,
-                         batch_size=3*24,
-                         recalculate_lstm_states=True,
-                         rewards_shift=2,
-                         self_bootstrap_dones=True,
-                         )
+    # if os.path.exists(save_path):
+    #     # list all saved model zip files in the model folder
+    #     model_list = [model for model in os.listdir(save_path) if model.endswith('.zip')]
+    #     # sort the list by date, most recent first
+    #     model_list.sort(key=lambda x: os.path.getmtime(os.path.join(save_path, x)), reverse=True)
+    #     # load the most recent model
+    #     model_to_load = model_list[0]
+    #     # remove the zip ending
+    #     model_to_load = model_to_load[:-4]
+    #     model_path = os.path.join(save_path, model_to_load)
+    #     print('loading model', model_path)
+    #     model = RecurrentPPO.load(model_path, env=final_env, tensorboard_log=tboard_logdir, device="cuda", verbose=0)
+   #  else:
+    model = RecurrentPPO('MlpLstmPolicy',
+                     final_env,
+                     verbose=0,
+                     use_sde=False,
+                     tensorboard_log=tboard_logdir,
+                     device="cuda",
+                     n_epochs=4,
+                     # target_kl=0.05,
+                         learning_rate=exponential_schedule(0.0003, 15, 0.69),
+                     n_steps=9*24,
+                     stats_window_size=1,
+                     ent_coef=0.00,
+                     # policy_kwargs=policy_dict,
+                     batch_size=3*24,
+                     recalculate_lstm_states=True,
+                     rewards_shift=2,
+                     self_bootstrap_dones=True,
+                     )
 
     model.policy.action_dist = SquashedDiagGaussianDistribution(action_dim=num_actions, epsilon=1e-5)
     # eval_callback = EvalCallback(eval_env=final_env,
