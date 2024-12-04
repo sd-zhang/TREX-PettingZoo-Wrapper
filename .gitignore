@@ -1,4 +1,7 @@
 
+
+_data/
+
 runs/
 
 models/
@@ -6,3 +9,7 @@ models/
 logs/
 
 __pycache__/
+
+PPO_Models/
+PPO_Models_schedule/
+PPO_Models_schedule_2/

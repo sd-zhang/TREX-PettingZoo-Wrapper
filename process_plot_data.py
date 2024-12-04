@@ -153,7 +153,7 @@ def plot_power_metrics(df, metrics):
     num_metrics = len(metrics) -1
     num_rows = int(np.ceil(num_metrics/3))
     num_cols = int(np.ceil(num_metrics/num_rows))
-    fig, ax = plt.subplots(num_rows, num_cols, figsize=(15, 15))
+    fig, ax = plt.subplots(num_rows, num_cols, figsize=(15, 15), sharex=True)
     color = 'blue'
     for index, metric in enumerate(metrics):
         if metric != 'Return':
@@ -163,23 +163,33 @@ def plot_power_metrics(df, metrics):
             rare_metric = df[metric]
             # extract index values
             rare_metric_index = rare_metric.index.values
+            max_index = np.amax(rare_metric_index)
+            min_index = np.amin(rare_metric_index)
+            #rescale to 0-114
+            rare_metric_index = (rare_metric_index - min_index) / (max_index - min_index) * 114
             # extract the actual values
             rare_metric = rare_metric.values
             plot_row = int(index/num_cols)
             plot_col = index % num_cols
             ax[plot_row, plot_col].scatter(rare_metric_index, rare_metric, color=color, alpha=0.1)
 
-            max_return = df['Max_Return ' + metric]
-            ax[plot_row, plot_col].plot(max_return, color=color)
+            max_return = df['Max_Return ' + metric].values
+            max_return_index = df['Max_Return ' + metric].index.values
+            max_return_index = (max_return_index - min_index) / (max_index - min_index) * 114
+            ax[plot_row, plot_col].plot(max_return_index, max_return, color=color)
             if plot_row == num_rows - 1:
-                ax[plot_row, plot_col].set_xlabel('Step')
-            if 'export' in metric or 'import' in metric or 'ramping' in metric: # convert from W to kW by dividing by 1000if ['export', 'import', 'ramping'] in metric:
-                ax[plot_row, plot_col].set_ylabel('kW')
+                ax[plot_row, plot_col].set_xlabel('Episode')
+            # if 'export' in metric or 'import' in metric or 'ramping' in metric: # convert from W to kW by dividing by 1000if ['export', 'import', 'ramping'] in metric:
+            #    ax[plot_row, plot_col].set_ylabel('kW')
             ax[plot_row, plot_col].set_title(metric)
+
+    fig.set_size_inches(10, 10)
 
     plt.legend()
     plt.show()
     plt.close()
+
+    #figure size
 
     # for all rare metrics, calculate the corellation with all other rare metrics
     # print the correlation matrix
@@ -221,7 +231,7 @@ def plot_RL_metrics(df, metrics):
         ax[plot_row, plot_col].plot(smoothed_rare_metric, color=color)
         ax[plot_row, plot_col].set_title(metric)
         if plot_row == num_rows - 1:
-            ax[plot_row, plot_col].set_xlabel('Step')
+            ax[plot_row, plot_col].set_xlabel('Episode')
 
 
     plt.legend()
@@ -229,20 +239,75 @@ def plot_RL_metrics(df, metrics):
 
     plt.close()
 
+def avgNestedLists(nested_vals):
+    """
+    Averages a 2-D array and returns a 1-D array of all of the columns
+    averaged together, regardless of their dimensions.
+    """
+    means = []
+    std = []
+    maximum = 0
+    for lst in nested_vals:
+        if len(lst) > maximum:
+            maximum = len(lst)
+    for index in range(maximum): # Go through each index of longest list
+        temp = []
+        for lst in nested_vals: # Go through each list
+            if index < len(lst): # If not an index error
+                temp.append(lst[index])
+        means.append(np.nanmean(temp))
+        std.append(np.nanstd(temp))
+    return means, std
+
 def plot_Return():
     # plot the return metric separately
 
-    df = pd.read_csv('_data/Return/Average Building Return.csv')
+    df1 = pd.read_csv('_data/Return/run1_Building_mean_returns.csv')
+    df2 = pd.read_csv('_data/Return/run2_Building_mean_returns.csv')
+    df3 = pd.read_csv('_data/Return/run3_Building_mean_returns.csv')
 
     fig, ax = plt.subplots(1, 1)
     color = 'blue'
-    return_metric = df['Value']
-    return_metric_index = return_metric.index.values
-    return_metric = return_metric.values
-    ax.plot(return_metric, color=color)
+    run1_return_metric = df1['Value']
+    run1_return_metric_index = run1_return_metric.index.values #were gonna plot on this axis
+    run1_return_metric = run1_return_metric.values.tolist()
+
+    run2_return_metric = df2['Value']
+    run2_return_metric_index = run2_return_metric.index.values
+    run2_return_metric = run2_return_metric.values.tolist()
+
+    run3_return_metric = df3['Value']
+    run3_return_metric_index = run3_return_metric.index.values
+    run3_return_metric = run3_return_metric.values.tolist()
+
+    return_mean, return_std = avgNestedLists([run1_return_metric, run2_return_metric, run3_return_metric])
+
+    return_mean = np.array(return_mean[:110])
+    return_std = np.maximum(1.0, np.array(return_std[:110]))
+    indices= np.arange(len(return_mean))
+    #calculate the mean return
+    ax.plot(indices, return_mean, color=color, alpha=1, label='ALEX RL')
+    ax.fill_between(indices, return_mean - return_std, return_mean + return_std, color=color, alpha=0.3)
+
+    #add a straight line at height 144.467 with label ALEX DP
+    ax.axhline(y=144.467, color='r', linestyle=':', label='ALEX DP')
+
+    # #add a straight line at height 127.993 with label IndividualDERMS
+    # ax.axhline(y=127.993, color='g', linestyle=':', label='IndividualDERMS')
+
+    # add line at height 61.065 with label NoDERMS in color orange
+    # orange_color = (1.0, 0.647, 0.0)
+    # ax.axhline(y=61.065, color=orange_color, linestyle=':', label='NoDERMS')
+
+
+
+    fig.set_size_inches(5, 4)
+
     ax.set_xlabel('Episode')
-    ax.set_ylabel('Return')
-    ax.set_title('Average Building Return')
+    ax.set_ylabel('Bill Savings [$]')
+    ax.set_title('Average Building Bill Savings')
+
+    #make figsize smaller
 
     plt.legend()
     plt.show()

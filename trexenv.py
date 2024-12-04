@@ -22,12 +22,13 @@ def to_categorical(y, num_classes):
     """ 1-hot encodes a tensor """
     return np.eye(num_classes, dtype='uint8')[y]
 
-class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth else?
+class TrexEnv(pz.ParallelEnv): #
     """
 
     """
     metadata = {}
 
+    #ToDo: readabiity can be improved
     def __init__(self,
                  config_name=None, #ToDo: add a default here
                  run_name=hash(os.times()) % 100, #ToDo: add a default here
@@ -43,9 +44,11 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
         'TREX_config': name of the trex-core experiment config file
         'TREX_path': path of the trex env
         'env-id': if using the parallel runner
-        'action_space_type': list of 'discrete' or 'continuous' where len(list) == n_actions, #ToDo: continuous NOT implemented ATM
+        'action_space_type': list of 'discrete' or 'continuous' where len(list) == n_actions,
         'seed': random seed, not necessarily fully enforced yet! #FixMe: enforce random seeds properly
         """
+
+        # Daniel: this starts trex core and I hate all of it
         TREX_path = TREX_Core.__path__[0]  ##ToDo: James - adjust this to whichever path is yours, TREX has to be set up as a package
         # changes where python is looking to open the right config file
         #ToDo: Daniel - Get steven to write a function that does this without having to launch the runner and then kill it
@@ -55,22 +58,23 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
         self.config = runner.configs
         del runner
         os.chdir(cur_dir)
+        self.render_mode = False #Added Nov 27 2024
 
-
+        # handles the rewards offsets and other rewards things
         self.baseline_offset_rewards = baseline_offset_rewards
         if self.baseline_offset_rewards:
             self.baseline_pd = pd.read_csv(config_name + '.csv')
-
-        self.only_positive_rewards = only_positive_rewards #ToDo: raise a warning if these two are not both true
+        self.only_positive_rewards = only_positive_rewards #should probably be false all the time
 
         #set up agent names
-        self.agents = [agent for agent in self.config['participants'] if self.config['participants'][agent]['trader']['type'] == 'gym_agent']
-        # self.num_agents = len(self.agents) might be an attribute thats auto set
-        # assert self.num_agents > 0, 'There are no gym_agents in the config, please pick a config with at least 1 gym_agent'
-
-        self.possible_agents = self.agents #change if that ever becomes a thing
+        self.agents = [agent for agent in self.config['participants'] if self.config['participants'][agent]['trader']['type'] == 'gym_agent'] #FixMe: test if this works with a config with 1 gym agent and one non gym agent
+        assert len(self.agents) > 0, 'There are no gym_agents in the config, please pick a config with at least 1 gym_agent'
+        # self.possible_agents = self.agents #change if that ever becomes a thing
         # self.max_num_agents = self.num_agents #might be an autoset attribute
-        self.one_hot_encode_agent_ids = one_hot_encode_agent_ids
+        self.one_hot_encode_agent_ids = one_hot_encode_agent_ids #needed for CLDE
+
+        self.agents_obs_names = {} #holds the observations of each agent
+        self.agent_action_array = {} #holds the action types of each agent
 
         # set up general env variables
         self.episode_length = int(np.floor(self.config['study']['days'] * 24 * 60 * 60 / self.config['study']['time_step_size'])) #Because the length of an episode is given by the config #ToDO: is this whats causing the issues?!
@@ -81,8 +85,6 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
         if 'seed' in kwargs:
             print('setting seed to', kwargs['seed'], 'BEWARE that this is not fully enforced yet!')
 
-        self.agents_obs_names = {} #holds the observations of each agent
-        self.agent_action_array = {} #holds the action types of each agent
 
         # set up spaces
         self.action_space_type = action_space_type
@@ -95,6 +97,7 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
         # set up env_id for the memory lists, etc
         self.env_ids = kwargs['env_id'] if 'env_id' in kwargs else [0]
         # print('initializing TREX env, env_id:', self.env_ids, flush=True)
+
         self.smm_hash ='000000'
         self.smm_address = ''
         self.smm_port = 6666
@@ -106,7 +109,7 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
 
     def render(self, mode="human"):
         '''
-        #TODO: August 16, 2022: make this compatible with the browser code that steven has finished.
+        #has to exist, but doesnt have to do anything
 
         '''
 
@@ -229,10 +232,10 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
         self._force_nonblocking_sml()
 
         # envs_reset = [self.controller_smls[env_id]['kill'][3] for env_id in self.controller_smls]
-        self.wait_for_controller_smls()
+        self.wait_for_controller_smls() #waits for the sim controller to confirm
 
         # print('done reset')
-        self._reset_interprocess_memory()
+        self._reset_interprocess_memory() #tells sim controller in core we want to run now
 
         #now we're reset and g2g
         self.t_env_steps = 0
@@ -281,6 +284,7 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
 
         return np.array(state)
 
+    #ToDo: underscore this to _...
     @tenacity.retry(wait=tenacity.wait_fixed(0.01)
                           + tenacity.wait_random(0, 0.01),
                     )
@@ -419,6 +423,7 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
             return True
         # print('read reward smls')
 
+    # ToDo: underscore this to _...
     @tenacity.retry(wait=tenacity.wait_fixed(0.1) + tenacity.wait_random(0, 0.1), ) #this can afford to be slower in theory
     def wait_for_controller_smls(self):
         # we need the 'kill'[3] to be false
@@ -433,7 +438,7 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
             assert not any([self.controller_smls[env_id]['kill'][3] for env_id in self.controller_smls]), 'reset flag was not reset'
             return True
 
-
+    #ToDo: underscore this to _...
     @tenacity.retry(wait=tenacity.wait_fixed(0.01) + tenacity.wait_random(0, 0.01),)
     def wait_for_kill_smls(self):
         # we just set this to true, and need to wait for them to be false again
@@ -450,6 +455,7 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
             assert not any([self.controller_smls[env_id]['kill'][1] for env_id in self.controller_smls]), 'kill flag was not reset'
             return True
 
+    #FixMe: deprecated?
     def __startup_TREX_Core(self, config_name):
         #start the trex simulation and returns the multiprocessing pool object
 
@@ -516,9 +522,12 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
         This method sets up the action and observation spaces based on the values that are in the config
         For now, agents are assumed to be homogenous in the
         '''
+        # FixMe: might nor support discrete actiion and observation spaces at the moment
+
         # ToDo: Separate into _setup_obs_spaces
         # ToDo: Separate into _setup_action_spaces
-        # ToDo: then change action spaces to be able to be multidimensional
+        # ToDo: then change action and obs spaces to be able to be diverse (Rabbithole warning!)
+
 
         self.observation_spaces = {}
         if self.one_hot_encode_agent_ids:  # append the one-hot-encoding space here
@@ -581,8 +590,6 @@ class TrexEnv(pz.ParallelEnv): #ToDo: make this inherit from PettingZoo or sth e
                 self.action_spaces[agent] = agent_action_space
                 # except:
                 #    print("there was a problem loading the actions")
-
-
 
     def _setup_interprocess_memory(self):
         """
