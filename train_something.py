@@ -12,10 +12,11 @@ from sb3_contrib import RecurrentPPO
 # from TREX_env._utils.custom_distributions import SquashedDiagGaussianDistribution as Squash
 from TREX_env._utils.ppo_recurrent_custom import RecurrentPPO
 from TREX_env._utils.custom_Monitor import Custom_VecMonitor
+from TREX_env._utils.custom_vec_normalize import VecNormalize
 # from TREX_env._utils.custom_distributions import SquashedDiagGaussianDistribution
 from stable_baselines3.common.evaluation import evaluate_policy
 from stable_baselines3.common.callbacks import EvalCallback
-from stable_baselines3.common.vec_env import VecNormalize, VecMonitor, VecFrameStack, VecCheckNan
+from stable_baselines3.common.vec_env import VecMonitor, VecFrameStack, VecCheckNan
 from stable_baselines3.common.distributions import SquashedDiagGaussianDistribution
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.callbacks import CheckpointCallback
