@@ -69,7 +69,7 @@ class TrexEnv(pz.ParallelEnv): #
         #set up agent names
         self.agents = [agent for agent in self.config['participants'] if self.config['participants'][agent]['trader']['type'] == 'gym_agent'] #FixMe: test if this works with a config with 1 gym agent and one non gym agent
         assert len(self.agents) > 0, 'There are no gym_agents in the config, please pick a config with at least 1 gym_agent'
-        # self.possible_agents = self.agents #change if that ever becomes a thing
+        self.possible_agents = self.agents #change if that ever becomes a thing
         # self.max_num_agents = self.num_agents #might be an autoset attribute
         self.one_hot_encode_agent_ids = one_hot_encode_agent_ids #needed for CLDE
 
