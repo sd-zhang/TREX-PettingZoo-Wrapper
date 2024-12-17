@@ -1,15 +1,16 @@
-from trexenv import TrexEnv
 import datetime
-#ToDo: make sure all the shit in the env works before coming back here
+
+import numpy as np
+import tensorflow as tf
+# ToDo: make sure all the shit in the env works before coming back here
 # test if grid_equivalent is always worse (or at best equal) to market scenario
 # test if the battery works for fucks sake?!
 # test if the quantities line uo - battery charge and netloads, etc...
 from TREX_env._utils.buffer import RecurrentExperienceReplay
 from TREX_env._utils.models import build_actor_critic_models, sample_pi
-
-import tensorflow as tf
 from tensorflow import keras as k
-import numpy as np
+
+from trexenv import TrexEnv
 
 current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 tboard_logdir = f"runs/{current_time}"

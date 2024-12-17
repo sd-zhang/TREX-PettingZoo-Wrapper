@@ -5,7 +5,6 @@ from typing import Any, Dict, List, Optional, Union
 
 import numpy as np
 from gymnasium import spaces
-
 from stable_baselines3.common import utils
 from stable_baselines3.common.preprocessing import is_image_space
 from stable_baselines3.common.running_mean_std import RunningMeanStd

@@ -19,12 +19,13 @@
 #   Total_peak_import
 
 
-import pandas as pd
-import numpy as np
 import os
 import sys
+
 import matplotlib.pyplot as plt
-from scipy.stats import spearmanr
+import numpy as np
+import pandas as pd
+
 
 def process_power_metric_csvs():
     # get the list of files

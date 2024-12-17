@@ -1,6 +1,7 @@
-from trexenv import TrexEnv
 import numpy as np
 import pandas as pd
+
+from trexenv import TrexEnv
 
 '''The goal of this piece of code is to show how to:
     - launch the TREX-core (our digityal twin)

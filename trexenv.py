@@ -1,17 +1,16 @@
-import multiprocessing.managers
-
-from TREX_env._utils.sml_utils import read_flag_x_times
-from TREX_env._utils.trex_utils import prep_trex, run_subprocess, add_envid_to_launchlist
-import TREX_Core._utils.runner
-from gymnasium import spaces
-import numpy as np
-import os
 import multiprocessing as mp
+import os
+
+import numpy as np
 import pandas as pd
-import time
-import tenacity
 import pettingzoo as pz
+import tenacity
+from TREX_env._utils.trex_utils import prep_trex, run_subprocess, add_envid_to_launchlist
+from gymnasium import spaces
+
+# import TREX_Core.runner.runner as trunner
 from mathutils import RunningMeanStdMinMax
+
 
 #ToDo: check how we're fucking up the reset, we're overflowing 2h?
 
@@ -49,15 +48,16 @@ class TrexEnv(pz.ParallelEnv): #
         """
 
         # Daniel: this starts trex core and I hate all of it
-        TREX_path = TREX_Core.__path__[0]  ##ToDo: James - adjust this to whichever path is yours, TREX has to be set up as a package
+        # TREX_path = TREX_Core.__path__[0]  ##ToDo: James - adjust this to whichever path is yours, TREX has to be set up as a package
         # changes where python is looking to open the right config file
         #ToDo: Daniel - Get steven to write a function that does this without having to launch the runner and then kill it
-        cur_dir = os.getcwd()
-        os.chdir(TREX_path)
-        runner = TREX_Core._utils.runner.Runner(config_name, resume=False, purge=False, path=TREX_path)
-        self.config = runner.configs
-        del runner
-        os.chdir(cur_dir)
+        # cur_dir = os.getcwd()
+        # os.chdir(TREX_path)
+
+        # runner = trunner.Runner(config_name, resume=False, purge=False)
+        self.config = trunner.get_config(config_name)
+        # del runner
+        # os.chdir(cur_dir)
         self.render_mode = False #Added Nov 27 2024
 
         # handles the rewards offsets and other rewards things

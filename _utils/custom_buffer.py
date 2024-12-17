@@ -5,14 +5,13 @@ from typing import Callable, Generator, Optional, Tuple, Union
 import numpy as np
 import torch as th
 from gymnasium import spaces
-from stable_baselines3.common.buffers import RolloutBuffer
-from stable_baselines3.common.vec_env import VecNormalize
-
 from sb3_contrib.common.recurrent.type_aliases import (
-    RecurrentDictRolloutBufferSamples,
     RecurrentRolloutBufferSamples,
     RNNStates,
 )
+from stable_baselines3.common.buffers import RolloutBuffer
+from stable_baselines3.common.vec_env import VecNormalize
+
 
 def pad(
     seq_start_indices: np.ndarray,

@@ -1,12 +1,6 @@
 import os
 import warnings
-from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
 
-import gymnasium as gym
-import numpy as np
-
-from stable_baselines3.common.logger import Logger
 from stable_baselines3.common.callbacks import BaseCallback
 
 try:

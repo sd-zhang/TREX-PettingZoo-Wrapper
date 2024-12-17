@@ -1,10 +1,12 @@
-from trexenv import TrexEnv
-import numpy as np
-import os
-import tensorboard as tb
-import tensorflow as tf
 import datetime
+import os
 import shutil
+
+import numpy as np
+import tensorflow as tf
+
+from trexenv import TrexEnv
+
 '''The goal of this piece of code is to show how to:
     - launch the TREX-core (our digityal twin)
     - launch the TREX-gym env - connect the env to the subprocess

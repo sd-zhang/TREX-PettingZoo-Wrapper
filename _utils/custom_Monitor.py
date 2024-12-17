@@ -1,15 +1,14 @@
+import os
 import time
 import warnings
 from typing import Optional, Tuple, List
 
 import numpy as np
-import os
 import torch as th
-
-
+from stable_baselines3.common.logger import TensorBoardOutputFormat
 from stable_baselines3.common.vec_env.base_vec_env import VecEnv, VecEnvObs, VecEnvStepReturn, VecEnvWrapper
 
-from stable_baselines3.common.logger import TensorBoardOutputFormat
+
 class Custom_VecMonitor(VecEnvWrapper):
     """
     A vectorized monitor wrapper for *vectorized* Gym environments,

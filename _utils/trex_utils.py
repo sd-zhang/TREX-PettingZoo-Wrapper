@@ -1,8 +1,9 @@
 import os
-import sys
 import subprocess
+import sys
+
 import TREX_Core
-import json
+
 
 # ToDo: move this to some utils
 def prep_trex(config_name):

@@ -1,7 +1,7 @@
 import tensorflow as tf
-from tensorflow import keras as k
 import tensorflow_probability as tfp
-import numpy as np
+from tensorflow import keras as k
+
 
 def build_multivar(concentrations, dist, actions):
     # independent_dists = []

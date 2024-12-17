@@ -1,26 +1,18 @@
-from trexenv import TrexEnv
-import os
-from typing import Callable
-import numpy as np
-import pettingzoo as pz
-import stable_baselines3 as sb3
-import supersuit as ss
-from supersuit.vector.sb3_vector_wrapper import SB3VecEnvWrapper
-from pettingzoo.test import parallel_api_test
 import datetime
-from sb3_contrib import RecurrentPPO
-# from TREX_env._utils.custom_distributions import SquashedDiagGaussianDistribution as Squash
-from TREX_env._utils.ppo_recurrent_custom import RecurrentPPO
+from typing import Callable
+
+import numpy as np
+import supersuit as ss
 from TREX_env._utils.custom_Monitor import Custom_VecMonitor
 from TREX_env._utils.custom_vec_normalize import VecNormalize
-# from TREX_env._utils.custom_distributions import SquashedDiagGaussianDistribution
-from stable_baselines3.common.evaluation import evaluate_policy
-from stable_baselines3.common.callbacks import EvalCallback
-from stable_baselines3.common.vec_env import VecMonitor, VecFrameStack, VecCheckNan
-from stable_baselines3.common.distributions import SquashedDiagGaussianDistribution
-from stable_baselines3.common.monitor import Monitor
+# from TREX_env._utils.custom_distributions import SquashedDiagGaussianDistribution as Squash
+from sb3_contrib import RecurrentPPO
 from stable_baselines3.common.callbacks import CheckpointCallback
-from stable_baselines3.her.her_replay_buffer import HerReplayBuffer
+from stable_baselines3.common.distributions import SquashedDiagGaussianDistribution
+# from TREX_env._utils.custom_distributions import SquashedDiagGaussianDistribution
+from supersuit.vector.sb3_vector_wrapper import SB3VecEnvWrapper
+
+from trexenv import TrexEnv
 
 
 def exponential_schedule(initial_value: float, numer_of_steps: int, exponent: float) -> Callable[[float], float]:
@@ -144,7 +136,7 @@ if "__main__" == __name__:  # this is needed to make sure the code is not execut
                      device="cuda", #if you start having memory issues, moving to cpu might help at the expense of speed
                      n_epochs=4,
                      # target_kl=0.05,
-                    learning_rate=exponential_schedule(0.0003, 15, 0.69),
+                     learning_rate=exponential_schedule(0.0003, 15, 0.69),
                      n_steps=9*24,
                      stats_window_size=1,
                      ent_coef=0.00,

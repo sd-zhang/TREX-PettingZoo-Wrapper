@@ -1,10 +1,3 @@
-
-
-import TREX_Core._utils.runner
-import os
-
-
-
 def read_flag_x_times(shared_list, x=10, name='flag'):
     def tryAgain(retries=0):
         if retries < x:

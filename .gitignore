@@ -13,3 +13,5 @@ __pycache__/
 PPO_Models/
 PPO_Models_schedule/
 PPO_Models_schedule_2/
+/_configs/_credentials.json
+.idea
