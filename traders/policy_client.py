@@ -33,6 +33,8 @@ class Trader:
         # print('GOT TO THE GYM_AGENT INIT')
         # self.t_episode_steps = 0 # number of actions taken
         self.__participant = kwargs['trader_fns']
+        self.__client = self.__participant['client']
+        self.actions_dict_t = dict()
         # self.status = {
         #     'weights_loading': False,
         #     'weights_loaded': False,
@@ -69,28 +71,28 @@ class Trader:
         self.actions_event = asyncio.Event()
 
         #find the right default behaviors from kwargs['default_behaviors']
-        self.observation_variables = kwargs['observations']
+        # self.observation_variables = kwargs['observations']
 
         #ToDo - Daniel - Think about a nicer way of doing this
         #decode actions, load heuristics if necessary
-        self.allowed_actions = kwargs['actions']
-        self.learned_actions = {}
-        self.heuristic_actions = {}
-        for action in kwargs['actions']:
-
-            # Deprecated
-            if kwargs['actions'][action]['heuristic'] == 'learned':
-                self.learned_actions[action] = None
-            elif kwargs['actions'][action]['heuristic'] == 'netload':
-                assert 'quantity' in action, 'Netload heuristic only works for quantity actions'
-                self.heuristic_actions[action] = None
-            elif kwargs['actions'][action]['heuristic'] == 'fixed':
-                assert 'price' in action, 'Fixed heuristic only works for price actions'
-                self.heuristic_actions[action] = None
-            else:
-                raise NotImplementedError('Only learned actions and netload quantities are supported in the gym agent. Please reassign ', action, 'to learned', flush=True)
-
-        assert 'storage' in self.learned_actions, 'storage not in learned actions, WTF?'
+        # self.allowed_actions = kwargs['actions']
+        # self.learned_actions = {}
+        # self.heuristic_actions = {}
+        # for action in kwargs['actions']:
+        #
+        #     # Deprecated
+        #     if kwargs['actions'][action]['heuristic'] == 'learned':
+        #         self.learned_actions[action] = None
+        #     elif kwargs['actions'][action]['heuristic'] == 'netload':
+        #         assert 'quantity' in action, 'Netload heuristic only works for quantity actions'
+        #         self.heuristic_actions[action] = None
+        #     elif kwargs['actions'][action]['heuristic'] == 'fixed':
+        #         assert 'price' in action, 'Fixed heuristic only works for price actions'
+        #         self.heuristic_actions[action] = None
+        #     else:
+        #         raise NotImplementedError('Only learned actions and netload quantities are supported in the gym agent. Please reassign ', action, 'to learned', flush=True)
+        #
+        # assert 'storage' in self.learned_actions, 'storage not in learned actions, WTF?'
 
 
 
@@ -108,7 +110,11 @@ class Trader:
         ###### Reward function intialization from config #######
         reward_function = kwargs['reward_function'] if 'reward_function' in kwargs else None
         if reward_function:
-            self._rewards = importlib.import_module('TREX_Core._agent.rewards.' + reward_function).Reward(
+            try:
+                Reward = importlib.import_module('rewards.' + reward_function).Reward
+            except ImportError:
+                Reward = importlib.import_module('TREX_Core.rewards.' + reward_function).Reward
+            self._rewards = Reward(
                 self.__participant['timing'],
                 self.__participant['ledger'],
                 self.__participant['market_info'])
@@ -275,8 +281,16 @@ class Trader:
         # print('obs_list', obs_list, flush=True)
         return obs_list
 
-    async def obs(self):
-        obs = await self.pre_process_obs()
+    async def send_obs_rewards(self):
+        # obs = await self.pre_process_obs()
+        # reward = await self._rewards.calculate()
+
+        obs = np.random.rand()
+        reward = np.random.rand()
+
+        data = {'participant_id': self.__participant['id'], 'obs': obs, 'reward': reward}
+        self.__client.publish('/'.join([self.__participant['market_id'], 'algorithm', 'obs_rewards']), data)
+
         # self.__client.publish('/'.join([self.market_id, 'simulation', 'end_turn']), self.participant_id,
         #                       user_property=('to', self.market_sid))
 
@@ -352,9 +366,13 @@ class Trader:
         # wait for the actions to come from EPYMARL
 
         # actions come in with a set order, they will need to be split up
+        # send msg to request actions
+        self.__client.publish('/'.join([self.__participant['market_id'], 'algorithm', 'get_actions']),
+                              self.__participant['id'])
+                              # user_property=('to', self.market_sid))
         await self.actions_event.wait()
         self.actions_event.clear()
-        action_dict_t = await self.decode_actions()
+        # action_dict_t =
 
         #     }
         # print('actions in agent', action_dict_t, flush=True)
@@ -370,7 +388,14 @@ class Trader:
         # print("gym agent action_dict_t", action_dict_t)
 
         # self.t_episode_steps += 1
-        return action_dict_t
+        return self.actions_dict_t
+
+    async def get_actions_return(self, message):
+        # await self.decode_actions(message)
+        self.actions_dict_t = message
+        print(self.actions_dict_t)
+        self.actions_event.set()
+        # pass
 
     async def step(self):
         # actions must come in the following format:
@@ -393,15 +418,15 @@ class Trader:
         #         }
         #     }
         #
-        await self.obs()
+
+        await self.send_obs_rewards()
         next_actions = await self.act()
         return next_actions
 
     async def reset(self, **kwargs):
-        #ToDo: reset ledger
         self.__participant['ledger'].reset()
-        self.actions.reset()
-        self.t_episode_steps = 0
+        # self.actions.clear()
+        # self.t_episode_steps = 0
         return True
 
     async def decode_actions(self):

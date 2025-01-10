@@ -1,31 +1,39 @@
 import asyncio
 import json
-# from asyncio import Queue
+# import time
+
+import anyio
+from anyio import to_thread, to_process
 import os
 from cuid2 import Cuid
 from gmqtt import Client as MQTTClient
-from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
+from pubsub import pub
 
+import random
 from TREX_Core._clients.markets.ns_common import NSDefault
 
 if os.name == 'posix':
     import uvloop
     uvloop.install()
+# else:
+#     import winloop
+#     winloop.install()
 
 STOP = asyncio.Event()
 
 class Client:
+
     def __init__(self, server_address, config=None):
         # Initialize client-server data
         self.server_address = server_address
         self.client = MQTTClient(Cuid(length=10).generate())
         # self.config = config  # temporary
         self.config = json.dumps({'test': 'config'})
-        # print(self.config)
+        self.market_id = 'training'
 
         #TODO: initialize trex env
         Env = importlib.import_module('trex_env')
-        self.env = Env.Env(self.client, config=config)
+        self.env = Env.Env(config=config)
 
         #TODO: initialize algorithm
         # Model = importlib.import_module('sb3_contrib').RecurrentPPO
@@ -34,9 +42,19 @@ class Client:
         # #TODO: pass NS stuff to super class
         # self.ns = NSDefault(self.env)
 
+        # self.tg = None
+        pub.subscribe(self.env_event_handler, 'pz_event')
+
+    async def async_handler(self):
+        self.client.publish('/'.join([self.market_id, 'algorithm', 'policy_sever_ready']), '', qos=0)
+
+    def env_event_handler(self):
+        print('a')
+        asyncio.run(self.async_handler())
+
     def on_connect(self, client, flags, rc, properties):
         # market_id = self.config['market']['id']  # temporary
-        market_id = 'test'
+
         print('connected')
         # pass
         # market_id = self.market.market_id
@@ -51,8 +69,8 @@ class Client:
         # client.subscribe("/".join([market_id, 'meter']), qos=0)
         #
         # # client.subscribe("/".join([market_id, 'simulation', '+']), qos=0)
-        client.subscribe("/".join([market_id, 'algorithm', 'get_actions']), qos=2)
-        client.subscribe("/".join([market_id, 'algorithm', 'obs_rewards']), qos=2)
+        client.subscribe("/".join([self.market_id, 'algorithm', 'get_actions']), qos=2)
+        client.subscribe("/".join([self.market_id, 'algorithm', 'obs_rewards']), qos=2)
         # client.subscribe("/".join([market_id, 'algorithm', 'rewards']), qos=0)
         # client.subscribe("/".join([market_id, 'simulation', 'start_generation']), qos=0)
         # client.subscribe("/".join([market_id, 'simulation', 'end_generation']), qos=0)
@@ -60,7 +78,21 @@ class Client:
         # client.subscribe("/".join([market_id, 'simulation', 'is_market_online']), qos=0)
         # participant_id = self.participant.participant_id
         # loop = asyncio.get_running_loop()
+                              # user_property=('to', self.market_sid))
         # loop.create_task(self.ns.on_connect())
+        # self.client.publish('/'.join([self.market_id, 'algorithm', 'policy_sever_ready']), '')
+        # time.sleep(5)
+        self.env.client_connected.set()
+
+        # print(self.env.client_connected)
+
+    def obs_check(self, payload):
+        """ every time obs/rewards come in this function is called
+        when the entire set of obs/rewards are in, set get_obs_event
+        """
+        self.env.obs = payload['obs']
+        self.env.reward = payload['reward']
+        self.env.get_obs_event.set()
 
     async def process_message(self, message):
         # if self.market.run:
@@ -70,13 +102,27 @@ class Client:
         match topic_event:
             # market related events
             case 'get_actions':
-                self.env.get_actions_go.set()
+                # TODO: can we just call model.predict() here? for individual agents?
+                # or we call model.predict at once at the end of the episode and let the agents query in the next round?
+                # print(payload)
+                participant_id = payload
+                # await asyncio.sleep(random.randint(1, 5))
+                actions = {'bif': (random.random(), random.random())}
+                # print(actions)
+                self.client.publish('/'.join([self.market_id, 'algorithm', participant_id, 'get_actions_return']),
+                                    actions, qos=2)
+                # pass
+                # self.env.poke_count += 1
+                # print('get actions received', self.env.poke_count)
+                # self.env.get_actions_event.set()
             case 'obs_rewards':
                 payload = json.loads(payload)
-                participant_id = payload['participant_id']
-                self.env.observations[participant_id] = payload['data']
+                self.obs_check(payload)
+                # print(payload)
+
                 # TODO: check if all observations are received
                 # TODO: after all obs/rewards are received, toggle event
+                # self.env.get_obs_event.set()
 
     def on_disconnect(self, client, packet, exc=None):
         # self.ns.on_disconnect()
@@ -97,17 +143,11 @@ class Client:
         await self.process_message(message)
         return 0
 
-    # async def fake_async(self, func):
-    #     with ProcessPoolExecutor() as executor:
-    #         loop = asyncio.get_running_loop()
-    #         await loop.run_in_executor(executor, func)
-    # #         executor.submit(func)
-
     def fake_model(self):
         fake_actions = dict()
+        # print('fake model')
         self.env.reset()
         while True:
-            # await asyncio.sleep(0.1)
             self.env.step(fake_actions)
 
     async def run_client(self, client):
@@ -120,33 +160,24 @@ class Client:
         await client.connect(self.server_address, keepalive=60)
         await STOP.wait()
         # await asyncio.wait()
-        # await client.disconnect()
+        await client.disconnect()
+
     async def run(self):
         """Function to start the client and other background tasks
 
         Raises:
             SystemExit: [description]
         """
-        # tasks = [
-        #     # asyncio.create_task(keep_alive()),
-        #     # asyncio.create_task(self.ns.listen(self.msg_queue)),
-        #     asyncio.create_task(self.run_client(self.sio_client)),
-        #     asyncio.create_task(self.market.loop())
-        # ]
-        #
-        # # try:
-        # await asyncio.gather(*tasks)
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(self.run_client, self.client)
+            tg.start_soon(to_thread.run_sync, self.fake_model)
+        # async with asyncio.TaskGroup() as tg:
+        #     tg.create_task(self.run_client(self.client))
+        #     # tg.create_task(self.message_queue_processor())
+        #     # tg.create_task(self.fake_async(self.fake_model))
+        #     tg.create_task(asyncio.to_thread(self.fake_model))
+            # tg.create_task(asyncify(self.fake_model))
 
-        # asyncio.create_task(self.run_client(self.client))
-
-        # for python 3.11+
-
-
-        async with asyncio.TaskGroup() as tg:
-            tg.create_task(self.run_client(self.client))
-            # tg.create_task(self.fake_async(self.fake_model))
-            tg.create_task(asyncio.to_thread(self.fake_model))
-            # tg.create_task(self.keep_alive())
 
 if __name__ == '__main__':
     # import socket
@@ -164,5 +195,5 @@ if __name__ == '__main__':
     #                 config=json.loads(args.config))
 
     client = Client(server_address=server_address)
-
-    asyncio.run(client.run())
+    # asyncio.run(client.run())
+    anyio.run(client.run)
