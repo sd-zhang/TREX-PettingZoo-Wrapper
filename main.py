@@ -6,14 +6,14 @@ if __name__ == '__main__':
     # however due to the complexity this is experimental and cannot be relied upon
     # runner = Runner(config='atco_1h_hc4_aggregate', resume=False, purge=True)
     # config = 'atco_1h_hc4_aggregate'
-    config = 'atco_1h_hc4_perm1_bess'
+    config = 'erp_test'
     runner = Runner(config=config, resume=False, purge=True)
 
     # list of simulations to be performed.
     # in general, it is recommended to perform at base line and training at minimum
     simulations = {
-        'baseline'
-        # 'training'
+        # 'baseline'
+        'training'
         # 'validation'
     }
     # launch_list = runner.make_launch_list()

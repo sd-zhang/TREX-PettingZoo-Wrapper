@@ -1,23 +1,10 @@
-# import multiprocessing as mp
-# import os
-import asyncio
-import time
 from anyio import from_thread
 # import numpy as np
 # import pandas as pd
 import pettingzoo as pz
 import threading
 import random
-from pubsub import pub
-# import event
-
-# import tenacity
-# from _utils.trex_utils import prep_trex, run_subprocess, add_envid_to_launchlist
-# from gymnasium import spaces
-
-# import TREX_Core.runner.runner as trunner
-# from mathutils import RunningMeanStdMinMax
-
+# from pubsub import pub
 
 # #ToDo: check how we're fucking up the reset, we're overflowing 2h?
 #
@@ -34,7 +21,7 @@ class Env(pz.ParallelEnv): #
     """
     metadata = {'name': 'TREXEnv'}
 
-    def __init__(self, config):
+    def __init__(self, client, config):
         """
         This method initializes the environment and sets up the action and observation spaces
         :param kwargs:
@@ -47,6 +34,7 @@ class Env(pz.ParallelEnv): #
 
         # self.loop=loop
         # print(self.client)
+        self.client = client
         self.render_mode = False
 
         #set up agent names
@@ -72,6 +60,14 @@ class Env(pz.ParallelEnv): #
     # def async_sender(self, sender):
     #     async with sender:
     #         sender.send('event')
+
+    def obs_check(self, payload):
+        """ every time obs/rewards come in this function is called
+        when the entire set of obs/rewards are in, set get_obs_event
+        """
+        self.obs = payload['obs']
+        self.reward = payload['reward']
+        self.get_obs_event.set()
     def step(self, actions):
         #ToDo: change this to process an action dict of the form {agent_name: action}
         '''
@@ -90,7 +86,8 @@ class Env(pz.ParallelEnv): #
         # self.get_obs_event.wait()
         # TODO: DECODE ACTIONS AND STORE IN DICT: see what daniel did
         print('ready to send actions')
-        pub.sendMessage('pz_event')
+        self.client.publish('/'.join([self.market_id, 'algorithm', 'policy_sever_ready']), '', qos=0)
+        # pub.sendMessage('pz_event')
 
         # self.client.put_nowait(random.random())
         # self.client.join()
@@ -115,9 +112,10 @@ class Env(pz.ParallelEnv): #
         # TODO: wait for observations and rewards
         self.get_obs_event.wait()
         self.get_obs_event.clear()
-        print('next')
+        self.step_count += 1
+        print('next', self.step_count)
         # self.get_actions_event.wait()
-        # self.step_count += 1
+
         # if not self.step_count % 1000:
         #     print('learning for 10 seconds')
         #     time.sleep(10)

@@ -1,36 +1,28 @@
-import asyncio
 import json
 # import time
 
-import anyio
-from anyio import to_thread, to_process
-import os
+# import os
 from cuid2 import Cuid
-from gmqtt import Client as MQTTClient
-from pubsub import pub
+import paho.mqtt.client as mqtt
 
 import random
 from TREX_Core._clients.markets.ns_common import NSDefault
 
-# if os.name == 'posix':
-#     import uvloop
-#     uvloop.install()
-
-STOP = asyncio.Event()
 
 class Client:
 
     def __init__(self, server_address, config=None):
         # Initialize client-server data
         self.server_address = server_address
-        self.client = MQTTClient(Cuid(length=10).generate())
+        self.client = mqtt.Client(client_id=Cuid(length=10).generate(),
+                                  callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
         # self.config = config  # temporary
         self.config = json.dumps({'test': 'config'})
         self.market_id = 'training'
 
         #TODO: initialize trex env
         Env = importlib.import_module('trex_env')
-        self.env = Env.Env(config=config)
+        self.env = Env.Env(client=self.client, config=config)
 
         #TODO: initialize algorithm
         # Model = importlib.import_module('sb3_contrib').RecurrentPPO
@@ -39,22 +31,7 @@ class Client:
         # #TODO: pass NS stuff to super class
         # self.ns = NSDefault(self.env)
 
-        # self.tg = None
-        # self.loop = asyncio.new_event_loop()
-        # asyncio.set_event_loop(self.loop)
-        pub.subscribe(self.env_event_handler, 'pz_event')
-
-    async def async_handler(self):
-        self.client.publish('/'.join([self.market_id, 'algorithm', 'policy_sever_ready']), '', qos=0)
-        # await asyncio.sleep(0.01)
-
-    def env_event_handler(self):
-        print('a')
-        # self.loop.run_until_complete(self.async_handler())
-        # self.client.publish('/'.join([self.market_id, 'algorithm', 'policy_sever_ready']), '', qos=2)
-        asyncio.run(self.async_handler())
-
-    def on_connect(self, client, flags, rc, properties):
+    def on_connect(self, client, userdata, flags, reason_code, properties):
         # market_id = self.config['market']['id']  # temporary
 
         print('connected')
@@ -88,15 +65,24 @@ class Client:
 
         # print(self.env.client_connected)
 
-    def obs_check(self, payload):
-        """ every time obs/rewards come in this function is called
-        when the entire set of obs/rewards are in, set get_obs_event
-        """
-        self.env.obs = payload['obs']
-        self.env.reward = payload['reward']
-        self.env.get_obs_event.set()
+    def on_disconnect(self, client, userdata, flags, reason_code, properties):
+        # self.ns.on_disconnect()
+        print('pettingzoo disconnected')
 
-    async def process_message(self, message):
+    def on_message(self, client, userdata, message):
+        message = {
+            'topic': message.topic,
+            'payload': message.payload.decode(),
+            'properties': message.properties
+        }
+        # print(message)
+        #
+        # # await self.msg_queue.put(msg)
+        self.process_message(message)
+        return 0
+
+
+    def process_message(self, message):
         # if self.market.run:
         topic_event = message['topic'].split('/')[-1]
         payload = message['payload']
@@ -112,38 +98,14 @@ class Client:
                 actions = {'bif': (random.random(), random.random())}
                 # print(actions)
                 self.client.publish('/'.join([self.market_id, 'algorithm', participant_id, 'get_actions_return']),
-                                    actions, qos=2)
+                                    json.dumps(actions), qos=2)
                 # pass
                 # self.env.poke_count += 1
                 # print('get actions received', self.env.poke_count)
                 # self.env.get_actions_event.set()
             case 'obs_rewards':
                 payload = json.loads(payload)
-                self.obs_check(payload)
-                # print(payload)
-
-                # TODO: check if all observations are received
-                # TODO: after all obs/rewards are received, toggle event
-                # self.env.get_obs_event.set()
-
-    def on_disconnect(self, client, packet, exc=None):
-        # self.ns.on_disconnect()
-        print('pettingzoo disconnected')
-
-    # def on_subscribe(self, client, mid, qos, properties):
-    #     print('SUBSCRIBED')
-
-    async def on_message(self, client, topic, payload, qos, properties):
-        # print('market RECV MSG:', topic, payload.decode(), properties)
-        message = {
-            'topic': topic,
-            'payload': payload.decode(),
-            'properties': properties
-        }
-
-        # await self.msg_queue.put(msg)
-        await self.process_message(message)
-        return 0
+                self.env.obs_check(payload)
 
     def fake_model(self):
         fake_actions = dict()
@@ -152,31 +114,25 @@ class Client:
         while True:
             self.env.step(fake_actions)
 
-    async def run_client(self, client):
-        client.on_connect = self.on_connect
-        client.on_disconnect = self.on_disconnect
+    def run_client(self):
+        self.client.on_connect = self.on_connect
+        self.client.on_disconnect = self.on_disconnect
         # client.on_subscribe = self.on_subscribe
-        client.on_message = self.on_message
+        self.client.on_message = self.on_message
 
         # client.set_auth_credentials(token, None)
-        await client.connect(self.server_address, keepalive=60)
-        await STOP.wait()
-        # await asyncio.wait()
-        await client.disconnect()
+        self.client.connect(self.server_address, keepalive=60)
 
-    async def run(self):
+    def run(self):
         """Function to start the client and other background tasks
 
         Raises:
             SystemExit: [description]
         """
-        # async with anyio.create_task_group() as tg:
-        #     tg.start_soon(self.run_client, self.client)
-        #     tg.start_soon(to_thread.run_sync, self.fake_model)
-        async with asyncio.TaskGroup() as tg:
-            tg.create_task(self.run_client(self.client))
-            tg.create_task(asyncio.to_thread(self.fake_model))
-
+        self.client.loop_start()
+        self.run_client()
+        self.fake_model()
+        self.client.loop_stop()
 
 if __name__ == '__main__':
     # import socket
@@ -194,10 +150,4 @@ if __name__ == '__main__':
     #                 config=json.loads(args.config))
 
     client = Client(server_address=server_address)
-    #
-    # loop = asyncio.new_event_loop()
-    # asyncio.set_event_loop(loop)
-    # client.loop = loop
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-    asyncio.run(client.run())
-    # anyio.run(client.run)
+    client.run()
