@@ -30,9 +30,60 @@
         "trader": {
           "track_metrics": false,
           "type": "policy_client",
-          "bid_price": 0.14,
-          "ask_price": 0.07,
-          "reward_function": "net_profit",
+          "actions": {
+          "price_ask": {
+            "heuristic": "fixed",
+            "max": 0.1449,
+            "min": 0.069
+          },
+          // "learned, keep the min and max the same as the market
+          "quantity_ask": {
+            "heuristic": "netload",
+            "max": 10,
+            "min": 0
+          },
+          // "learned, adjust the  max accordingly? Min need to stay at 0
+
+          "price_bid": {
+            "heuristic": "fixed",
+            "max": 0.1449,
+            "min": 0.069
+          },
+          // "learned, keep the min and max the same as the market
+          "quantity_bid": {
+            "heuristic": "netload",
+            "max": 10,
+            "min": 0
+          },
+          // "learned, adjust the max accordingly? Min need to stay at 0
+          "storage": {
+            "heuristic": "learned",
+            "max": 5000,
+            "min": -5000
+          }
+          //"learned", "greedy"
+        },
+        "learning": true,
+        "observations": [
+          "daytime_sin",
+          "daytime_cos",
+          "yeartime_sin",
+          "yeartime_cos",
+          "netload_settle", //"netload_deliver", "netload_settle", "netload_now",
+          "SoC_settle", //SoC, Need to check if this actyuall works!!!!
+          "actual_netload_now",
+          "avg_bid_price",
+          "total_bid_quantity",
+          "avg_ask_price",
+          "total_ask_quantity"
+          //"avg_ask_quantity",       // might not be needed since market settles in expecation
+          // "avg_bid_quantity",      // might not be needed since market settles in expecation
+          //"std_ask_quantity",       // might not be needed since market settles in expecation
+          // "std_bid_quantity",      // might not be needed since market settles in expecation
+          //"total_settled_quantity", // might not be needed since it can be inferred from the other quantities
+        ],
+        //
+        "reward_function": "net_profit",
           "use_synthetic_profile": "test_profile_1kw_constant"
         },
         "load": {

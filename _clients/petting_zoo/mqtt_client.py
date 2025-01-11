@@ -1,4 +1,6 @@
 import json
+import datetime
+import numpy as np
 # import time
 
 # import os
@@ -8,25 +10,79 @@ import paho.mqtt.client as mqtt
 import random
 from TREX_Core._clients.markets.ns_common import NSDefault
 
+import supersuit as ss
+from supersuit.vector.sb3_vector_wrapper import SB3VecEnvWrapper
+from _utils.ppo_recurrent_custom import RecurrentPPO
+from _utils.custom_Monitor import Custom_VecMonitor
+from _utils.custom_vec_normalize import VecNormalize
+from _utils.schedule import exponential_schedule
+import commentjson
+
+
+
 
 class Client:
 
-    def __init__(self, server_address, config=None):
+    def __init__(self, server_address, config):
         # Initialize client-server data
         self.server_address = server_address
         self.client = mqtt.Client(client_id=Cuid(length=10).generate(),
                                   callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
         # self.config = config  # temporary
-        self.config = json.dumps({'test': 'config'})
+        self.config = config
         self.market_id = 'training'
 
-        #TODO: initialize trex env
-        Env = importlib.import_module('trex_env')
-        self.env = Env.Env(client=self.client, config=config)
+        # TODO: initialize trex env
 
-        #TODO: initialize algorithm
+        current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        tboard_logdir = f"runs/{current_time}"
+        Env = importlib.import_module('trex_env')
+        self.env = Env.Env(client=self.client,
+                           config=self.config,
+                           action_space_type='continuous',
+                           action_space_entries=None,
+                           baseline_offset_rewards=True,
+                           one_hot_encode_agent_ids=True,
+                           )
+
+        num_bits = self.env.num_one_hot_bits
+        agents_obs_keys = self.env.agents_obs_names
+        # episode_length = env.episode_length
+        agents = list(key for key in agents_obs_keys.keys())
+        agents_obs_keys = agents_obs_keys[agents[0]]
+
+        env = ss.pettingzoo_env_to_vec_env_v1(self.env)
+        print(self.env.actions)
+        env = SB3VecEnvWrapper(env)
+        env = Custom_VecMonitor(env, filename=tboard_logdir, obs_names=agents_obs_keys)
+        self.final_env = VecNormalize(env,
+                                norm_obs=True,
+                                norm_reward=False,
+                                num_bits=num_bits, #Daniel: The num bits corresponds to a 1hot encoding of agent id for our case, this is iIrc slight abuse but works
+                                clip_obs=1e6, clip_reward=1e6, gamma=0.99, epsilon=1e-08)
+
+        # TODO: initialize algorithm
         # Model = importlib.import_module('sb3_contrib').RecurrentPPO
         # self.model = Model()
+        # self.model = RecurrentPPO('MlpLstmPolicy',
+        #                           self.final_env,
+        #                           verbose=0,
+        #                           use_sde=False,
+        #                           tensorboard_log=tboard_logdir,
+        #                           device="cuda",
+        #                           # if you start having memory issues, moving to cpu might help at the expense of speed
+        #                           n_epochs=4,
+        #                           # target_kl=0.05,
+        #                           learning_rate=exponential_schedule(0.0003, 15, 0.69),
+        #                           n_steps=9 * 24,
+        #                           stats_window_size=1,
+        #                           ent_coef=0.00,
+        #                           # policy_kwargs=policy_dict,
+        #                           batch_size=3 * 24,
+        #                           recalculate_lstm_states=True,
+        #                           rewards_shift=2,
+        #                           self_bootstrap_dones=True,
+        #                           )
 
         # #TODO: pass NS stuff to super class
         # self.ns = NSDefault(self.env)
@@ -57,7 +113,7 @@ class Client:
         # client.subscribe("/".join([market_id, 'simulation', 'is_market_online']), qos=0)
         # participant_id = self.participant.participant_id
         # loop = asyncio.get_running_loop()
-                              # user_property=('to', self.market_sid))
+        # user_property=('to', self.market_sid))
         # loop.create_task(self.ns.on_connect())
         # self.client.publish('/'.join([self.market_id, 'algorithm', 'policy_sever_ready']), '')
         # time.sleep(5)
@@ -81,7 +137,6 @@ class Client:
         self.process_message(message)
         return 0
 
-
     def process_message(self, message):
         # if self.market.run:
         topic_event = message['topic'].split('/')[-1]
@@ -95,10 +150,11 @@ class Client:
                 # print(payload)
                 participant_id = payload
                 # await asyncio.sleep(random.randint(1, 5))
-                actions = {'bif': (random.random(), random.random())}
+                # actions = {'bif': (random.random(), random.random())}
                 # print(actions)
+                actions = json.dumps(self.env.actions['participant_id'])
                 self.client.publish('/'.join([self.market_id, 'algorithm', participant_id, 'get_actions_return']),
-                                    json.dumps(actions), qos=2)
+                                    actions, qos=2)
                 # pass
                 # self.env.poke_count += 1
                 # print('get actions received', self.env.poke_count)
@@ -110,9 +166,9 @@ class Client:
     def fake_model(self):
         fake_actions = dict()
         # print('fake model')
-        self.env.reset()
+        self.final_env.reset()
         while True:
-            self.env.step(fake_actions)
+            self.final_env.step(np.array(random.random()))
 
     def run_client(self):
         self.client.on_connect = self.on_connect
@@ -132,7 +188,9 @@ class Client:
         self.client.loop_start()
         self.run_client()
         self.fake_model()
+        # self.model.learn(total_timesteps=20 * 1e7)
         self.client.loop_stop()
+
 
 if __name__ == '__main__':
     # import socket
@@ -148,6 +206,11 @@ if __name__ == '__main__':
     server_address = args.host
     # client = Client(server_address=server_address,
     #                 config=json.loads(args.config))
+    def load_json_file(file_path):
+        with open(file_path) as f:
+            json_file = commentjson.load(f)
+        return json_file
 
-    client = Client(server_address=server_address)
+    config = load_json_file('../../_configs/erp_test.json')
+    client = Client(server_address=server_address, config=config)
     client.run()
