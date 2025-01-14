@@ -52,10 +52,10 @@ class Client:
         agents_obs_keys = agents_obs_keys[agents[0]]
 
         env = ss.pettingzoo_env_to_vec_env_v1(self.env)
-        print(self.env.actions)
-        env = SB3VecEnvWrapper(env)
-        env = Custom_VecMonitor(env, filename=tboard_logdir, obs_names=agents_obs_keys)
-        self.final_env = VecNormalize(env,
+        # print(self.env.actions)
+        env2 = SB3VecEnvWrapper(env)
+        env3 = Custom_VecMonitor(env2, filename=tboard_logdir, obs_names=agents_obs_keys)
+        self.final_env = VecNormalize(env3,
                                 norm_obs=True,
                                 norm_reward=False,
                                 num_bits=num_bits, #Daniel: The num bits corresponds to a 1hot encoding of agent id for our case, this is iIrc slight abuse but works
@@ -164,11 +164,12 @@ class Client:
                 self.env.obs_check(payload)
 
     def fake_model(self):
-        fake_actions = dict()
+        fake_actions = {'b1': [-0.96259534]}
         # print('fake model')
-        self.final_env.reset()
+        reset_out = self.final_env.reset()
+        print('reset_out: ', reset_out)
         while True:
-            self.final_env.step(np.array(random.random()))
+            self.final_env.step(fake_actions)
 
     def run_client(self):
         self.client.on_connect = self.on_connect
@@ -187,8 +188,8 @@ class Client:
         """
         self.client.loop_start()
         self.run_client()
-        self.fake_model()
-        # self.model.learn(total_timesteps=20 * 1e7)
+        # self.fake_model()
+        self.model.learn(total_timesteps=20 * 1e7)
         self.client.loop_stop()
 
 

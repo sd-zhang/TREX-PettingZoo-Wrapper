@@ -52,9 +52,15 @@ class Env(pz.ParallelEnv): #
         self.agents = [agent for agent in self.config['participants'] if self.config['participants'][agent]['trader'][
             'type'] == 'policy_client']
         self.possible_agents = self.agents #change if that ever becomes a thing
-        self.one_hot_encode_agent_ids = one_hot_encode_agent_ids  # needed for CLDE
         self.agents_obs_names = {} #holds the observations of each agent
         self.agent_action_array = {} #holds the action types of each agent
+
+        self.one_hot_encode_agent_ids = one_hot_encode_agent_ids  # needed for CLDE
+        self.num_one_hot_bits = int(np.ceil(np.sqrt(len(self.agents))))
+        if self.one_hot_encode_agent_ids:
+            self.agent_bin_ids = dict()
+            for i, agent in enumerate(self.agents):
+                self.agent_bin_ids[agent] = tuple([int(e) for e in list(np.binary_repr(i + 1, self.num_one_hot_bits))])
 
         self.market_id = 'training'
         self.client_connected = threading.Event()
@@ -65,7 +71,7 @@ class Env(pz.ParallelEnv): #
 
         self.actions = dict()
         self.obs = dict()
-        self.reward = dict()
+        self.rewards = dict()
         self.step_count = 0
         self.poke_count = 0
 
@@ -86,13 +92,35 @@ class Env(pz.ParallelEnv): #
     #     async with sender:
     #         sender.send('event')
 
+    # def bin_array(self):
+    #     agent_bin_ids = dict()
+    #     for i, agent in enumerate(self.agents):
+    #         agent_bin_ids[agent] = (int(e) for e in list(np.binary_repr(i+1, self.num_one_hot_bits)))
+    #     return agent_bin_ids
+
     def obs_check(self, payload):
         """ every time obs/rewards come in this function is called
         when the entire set of obs/rewards are in, set get_obs_event
         """
-        self.obs = payload['obs']
-        self.reward = payload['reward']
-        self.get_obs_event.set()
+        participant_id = payload['participant_id']
+        obs = payload['obs']
+        reward = payload['reward']
+
+        if self.one_hot_encode_agent_ids:
+            # print(self.agent_bin_ids[participant_id])
+            obs.extend(self.agent_bin_ids[participant_id])
+
+        self.obs[participant_id] = np.array(obs)
+        self.rewards[participant_id] = reward
+
+        # {'Building_1': array([5.00000000e-01, 8.66025404e-01, -6.60019629e-01, -7.51248354e-01,
+        #                       8.38166700e+02, 0.00000000e+00, 8.51166700e+02, 6.80000000e-02,
+        #                       0.00000000e+00, 1.44900000e-01, 0.00000000e+00, 0.00000000e+00,
+        #                       1.00000000e+00])
+
+        if self.obs.keys() == set(self.agents):
+            # print(self.obs.keys())
+            self.get_obs_event.set()
 
     def decode_actions(self, actions):
         agent_actions_decoded = {}
@@ -141,33 +169,20 @@ class Env(pz.ParallelEnv): #
         # self.get_obs_event.wait()
         # TODO: DECODE ACTIONS AND STORE IN DICT: see what daniel did
         # {'Building_1': array([0.8560092], dtype=float32), 'Building_2': array([-0.94756734], dtype=float32)}
-        self.actions = self.decode_actions(actions)
+        # self.actions = self.decode_actions(actions)
+        self.actions = actions
+        self.obs.clear()
+        self.rewards.clear()
         print('ready to send actions')
-        # self.client.publish('/'.join([self.market_id, 'algorithm', 'policy_sever_ready']), '', qos=2)
-        # pub.sendMessage('pz_event')
-
-        # self.client.put_nowait(random.random())
-        # self.client.join()
-        # print(self.client)
-        # self.client.set()
-        # self.client.publish('/'.join([self.market_id, 'algorithm', 'policy_sever_ready']), '', qos=0)
-        # self.client.emit('event')
-        # from_thread.run(self.tg.start_soon,self.client.send, 'event')
-        # from_thread.run(self.client.publish, '/'.join([self.market_id, 'algorithm', 'policy_sever_ready'], ), '')
-        # self.client.publish('/'.join([self.market_id, 'algorithm', str(actor)]), actions)
-        # self.has_message.set()
-        # loop = asyncio.get_event_loop()
-        # loop = asyncio.get_running_loop()
-        # time.sleep(10)
-
-
-
-        # asyncio.run_coroutine_threadsafe(self.client.publish('/'.join([self.market_id, 'algorithm', 'policy_sever_ready']), ''), self.loop)
-
-
+        self.client.publish('/'.join([self.market_id, 'algorithm', 'policy_sever_ready']), '', qos=2)
 
         # TODO: wait for observations and rewards
+        print('-----------------')
+        print('waiting for obs (step)')
+        # print(self.obs)
         self.get_obs_event.wait()
+        print('got observations (step)')
+        self.actions.clear()
         self.get_obs_event.clear()
         self.step_count += 1
         print('next', self.step_count)
@@ -189,7 +204,19 @@ class Env(pz.ParallelEnv): #
         #     truncateds[agent] = True if self.t_env_steps >= self.episode_length else False
 
         # self.t_env_steps += 1
+
+        infos = {}
+        for agent in self.agents:
+            infos[agent] = dict()
+
+        terminations = {}
+        truncations = {}
+        for agent in self.agents:
+            terminations[agent] = True if not self.step_count % 2 else False
+            truncations[agent] = True if not self.step_count % 2 else False
+
         obs = self.obs
+        rewards = self.rewards
 
         return obs, rewards, terminations, truncations, infos
 
@@ -208,11 +235,13 @@ class Env(pz.ParallelEnv): #
 
         # self.get_obs_event.wait()
         self.client_connected.wait()
+        self.obs.clear()
+        self.rewards.clear()
         print('waiting for obs (reset)')
         self.get_obs_event.wait()
         obs = self.obs
+        print('got observations (reset)')
         self.get_obs_event.clear()
-        print('got obs (reset)', self.obs)
 
         infos = {}
         self.agents_max_actions = {}
@@ -220,6 +249,8 @@ class Env(pz.ParallelEnv): #
         for agent in self.agents:
             infos[agent] = dict()
 
+        # print(obs['b1'].shape, infos)
+        print(obs, infos)
         return obs, infos
 
     def close(self):
@@ -259,16 +290,16 @@ class Env(pz.ParallelEnv): #
         # ToDo: then change action and obs spaces to be able to be diverse (Rabbithole warning!)
 
         self.observation_spaces = {}
-        if self.one_hot_encode_agent_ids:  # append the one-hot-encoding space here
-            num_one_hot_bits = int(np.ceil(np.sqrt(self.num_agents)))
-            self.num_one_hot_bits = num_one_hot_bits
+        # if self.one_hot_encode_agent_ids:  # append the one-hot-encoding space here
+        #     num_one_hot_bits = int(np.ceil(np.sqrt(self.num_agents)))
+        #     self.num_one_hot_bits = num_one_hot_bits
         for agent in self.agents:
             try:
                 agent_obs_names = self.config['participants'][agent]['trader']['observations']
                 lows = [-np.inf]*len(agent_obs_names)
                 highs = [np.inf]*len(agent_obs_names)
                 if self.one_hot_encode_agent_ids:
-                    for bit in range(num_one_hot_bits):
+                    for bit in range(self.num_one_hot_bits):
                         agent_obs_names.append('Agent_id_bit_' + str(bit))
                         lows.append(0.0)
                         highs.append(1.0)
