@@ -52,15 +52,6 @@ class Env(pz.ParallelEnv): #
         self.agents = [agent for agent in self.config['participants'] if self.config['participants'][agent]['trader'][
             'type'] == 'policy_client']
         self.possible_agents = self.agents #change if that ever becomes a thing
-        self.agents_obs_names = {} #holds the observations of each agent
-        self.agent_action_array = {} #holds the action types of each agent
-
-        self.one_hot_encode_agent_ids = one_hot_encode_agent_ids  # needed for CLDE
-        self.num_one_hot_bits = int(np.ceil(np.sqrt(len(self.agents))))
-        if self.one_hot_encode_agent_ids:
-            self.agent_bin_ids = dict()
-            for i, agent in enumerate(self.agents):
-                self.agent_bin_ids[agent] = tuple([int(e) for e in list(np.binary_repr(i + 1, self.num_one_hot_bits))])
 
         self.market_id = 'training'
         self.client_connected = threading.Event()
@@ -69,13 +60,23 @@ class Env(pz.ParallelEnv): #
         self.end_step_event = threading.Event()
         self.end_episode_event = threading.Event()
 
+        # holding dicts
         self.actions = dict()
         self.obs = dict()
         self.rewards = dict()
         self.step_count = 0
-        self.poke_count = 0
 
         # set up spaces
+        self.one_hot_encode_agent_ids = one_hot_encode_agent_ids  # needed for CLDE
+        self.num_one_hot_bits = int(np.ceil(np.sqrt(len(self.agents))))
+        if self.one_hot_encode_agent_ids:
+            self.agent_bin_ids = dict()
+            for i, agent in enumerate(self.agents):
+                self.agent_bin_ids[agent] = tuple([int(e) for e in list(np.binary_repr(i + 1, self.num_one_hot_bits))])
+
+        self.agents_obs_names = dict()  # holds the observations of each agent
+        self.observation_spaces = dict()
+        self.agent_action_array = dict()  # holds the action types of each agent
         self.action_space_type = action_space_type
         if self.action_space_type == 'discrete':
             # assert isinstance(action_space_entries, int), 'action_space_entries must be specified in the environment yaml for discrete action space'
@@ -170,6 +171,7 @@ class Env(pz.ParallelEnv): #
         # TODO: DECODE ACTIONS AND STORE IN DICT: see what daniel did
         # {'Building_1': array([0.8560092], dtype=float32), 'Building_2': array([-0.94756734], dtype=float32)}
         # self.actions = self.decode_actions(actions)
+        print('-----------------')
         self.actions = actions
         self.obs.clear()
         self.rewards.clear()
@@ -177,7 +179,7 @@ class Env(pz.ParallelEnv): #
         self.client.publish('/'.join([self.market_id, 'algorithm', 'policy_sever_ready']), '', qos=2)
 
         # TODO: wait for observations and rewards
-        print('-----------------')
+
         print('waiting for obs (step)')
         # print(self.obs)
         self.get_obs_event.wait()
@@ -185,7 +187,6 @@ class Env(pz.ParallelEnv): #
         self.actions.clear()
         self.get_obs_event.clear()
         self.step_count += 1
-        print('next', self.step_count)
         # self.get_actions_event.wait()
 
         # if not self.step_count % 1000:
@@ -211,13 +212,15 @@ class Env(pz.ParallelEnv): #
 
         terminations = {}
         truncations = {}
+        terminated = not self.step_count % 3
         for agent in self.agents:
-            terminations[agent] = True if not self.step_count % 2 else False
-            truncations[agent] = True if not self.step_count % 2 else False
+            terminations[agent] = True if terminated else False
+            truncations[agent] = True if terminated else False
 
         obs = self.obs
         rewards = self.rewards
-
+        print('next step: ', self.step_count, terminated)
+        print('-----------------')
         return obs, rewards, terminations, truncations, infos
 
 
@@ -250,10 +253,11 @@ class Env(pz.ParallelEnv): #
             infos[agent] = dict()
 
         # print(obs['b1'].shape, infos)
-        print(obs, infos)
+        # print(obs, infos)
         return obs, infos
 
     def close(self):
+        print('close')
         pass
 
     def state(self):
@@ -289,24 +293,16 @@ class Env(pz.ParallelEnv): #
         # FixMe: might nor support discrete actiion and observation spaces at the moment
         # ToDo: then change action and obs spaces to be able to be diverse (Rabbithole warning!)
 
-        self.observation_spaces = {}
-        # if self.one_hot_encode_agent_ids:  # append the one-hot-encoding space here
-        #     num_one_hot_bits = int(np.ceil(np.sqrt(self.num_agents)))
-        #     self.num_one_hot_bits = num_one_hot_bits
         for agent in self.agents:
-            try:
-                agent_obs_names = self.config['participants'][agent]['trader']['observations']
-                lows = [-np.inf]*len(agent_obs_names)
-                highs = [np.inf]*len(agent_obs_names)
-                if self.one_hot_encode_agent_ids:
-                    for bit in range(self.num_one_hot_bits):
-                        agent_obs_names.append('Agent_id_bit_' + str(bit))
-                        lows.append(0.0)
-                        highs.append(1.0)
-                self.agents_obs_names[agent] = agent_obs_names
-
-            except:
-                print('There was a problem loading the config observations')
+            agent_obs_names = self.config['participants'][agent]['trader']['observations']
+            lows = [-np.inf]*len(agent_obs_names)
+            highs = [np.inf]*len(agent_obs_names)
+            if self.one_hot_encode_agent_ids:
+                for bit in range(self.num_one_hot_bits):
+                    agent_obs_names.append('agent_id_bit_' + str(bit))
+                    lows.append(0.0)
+                    highs.append(1.0)
+            self.agents_obs_names[agent] = agent_obs_names
             num_agent_obs = len(self.agents_obs_names[agent])
             agent_obs_space = spaces.Box(low=np.array(lows), high=np.array(highs), shape=(num_agent_obs,))
             self.observation_spaces[agent] = agent_obs_space

@@ -64,25 +64,25 @@ class Client:
         # TODO: initialize algorithm
         # Model = importlib.import_module('sb3_contrib').RecurrentPPO
         # self.model = Model()
-        # self.model = RecurrentPPO('MlpLstmPolicy',
-        #                           self.final_env,
-        #                           verbose=0,
-        #                           use_sde=False,
-        #                           tensorboard_log=tboard_logdir,
-        #                           device="cuda",
-        #                           # if you start having memory issues, moving to cpu might help at the expense of speed
-        #                           n_epochs=4,
-        #                           # target_kl=0.05,
-        #                           learning_rate=exponential_schedule(0.0003, 15, 0.69),
-        #                           n_steps=9 * 24,
-        #                           stats_window_size=1,
-        #                           ent_coef=0.00,
-        #                           # policy_kwargs=policy_dict,
-        #                           batch_size=3 * 24,
-        #                           recalculate_lstm_states=True,
-        #                           rewards_shift=2,
-        #                           self_bootstrap_dones=True,
-        #                           )
+        self.model = RecurrentPPO('MlpLstmPolicy',
+                                  self.final_env,
+                                  verbose=0,
+                                  use_sde=False,
+                                  tensorboard_log=tboard_logdir,
+                                  device="cuda",
+                                  # if you start having memory issues, moving to cpu might help at the expense of speed
+                                  n_epochs=4,
+                                  # target_kl=0.05,
+                                  learning_rate=exponential_schedule(0.0003, 15, 0.69),
+                                  n_steps=9 * 24,
+                                  stats_window_size=1,
+                                  ent_coef=0.00,
+                                  # policy_kwargs=policy_dict,
+                                  batch_size=3 * 24,
+                                  recalculate_lstm_states=True,
+                                  rewards_shift=2,
+                                  self_bootstrap_dones=True,
+                                  )
 
         # #TODO: pass NS stuff to super class
         # self.ns = NSDefault(self.env)
@@ -165,6 +165,7 @@ class Client:
 
     def fake_model(self):
         fake_actions = {'b1': [-0.96259534]}
+        # fake_actions = {'Building_1': [-0.96259534], 'Building_2': [-0.96259534]}
         # print('fake model')
         reset_out = self.final_env.reset()
         print('reset_out: ', reset_out)
@@ -188,8 +189,8 @@ class Client:
         """
         self.client.loop_start()
         self.run_client()
-        # self.fake_model()
-        self.model.learn(total_timesteps=20 * 1e7)
+        self.fake_model()
+        # self.model.learn(total_timesteps=20 * 1e7)
         self.client.loop_stop()
 
 

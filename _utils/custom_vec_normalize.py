@@ -192,6 +192,7 @@ class VecNormalize(VecEnvWrapper):
                 # for key in self.obs_rms.keys():
                 #     self.obs_rms[key].update(obs[key])
             else:
+                print('normal pre-sliced obs: ', obs)
 
                 sliced_obs = obs[:,:-self.num_bits]
                 self.obs_rms.update(sliced_obs)
@@ -204,13 +205,20 @@ class VecNormalize(VecEnvWrapper):
         rewards = self.normalize_reward(rewards)
 
         # Normalize the terminal observations
+        # print('infos', infos, 'dones', dones)
         for idx, done in enumerate(dones):
             if not done:
                 continue
             if "terminal_observation" in infos[idx]:
-                infos[idx]["terminal_observation"] = self.normalize_obs(infos[idx]["terminal_observation"])
+                # TODO: WHAT IS THIS WHY IS IT NOT BEING SLICED??????
+                # TODO: DO WE NEED TO SLICE IT I THINK WE DOOOOOOOOO!!!!
+                obs = infos[idx]["terminal_observation"]
+                sliced_obs = obs[:-self.num_bits]
+                infos[idx]["terminal_observation"] = self.normalize_obs(sliced_obs)
+                # infos[idx]["terminal_observation"] = self.normalize_obs(infos[idx]["terminal_observation"])
 
-        self.returns[dones] = 0
+                self.returns[idx] = 0
+        print('returns: ', self.returns, 'dones: ', dones)
         return obs, rewards, dones, infos
 
     def _update_reward(self, reward: np.ndarray) -> None:
@@ -225,6 +233,8 @@ class VecNormalize(VecEnvWrapper):
         :param obs_rms: associated statistics
         :return: normalized observation
         """
+
+        print('obs, obs_rms mean', obs, obs_rms.mean)
         return np.clip((obs - obs_rms.mean) / np.sqrt(obs_rms.var + self.epsilon), -self.clip_obs, self.clip_obs)
 
     def _unnormalize_obs(self, obs: np.ndarray, obs_rms: RunningMeanStd) -> np.ndarray:
