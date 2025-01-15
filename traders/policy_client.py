@@ -71,7 +71,7 @@ class Trader:
         self.actions_event = asyncio.Event()
 
         #find the right default behaviors from kwargs['default_behaviors']
-        # self.observation_variables = kwargs['observations']
+        self.observation_variables = kwargs['observations']
 
         #ToDo - Daniel - Think about a nicer way of doing this
         #decode actions, load heuristics if necessary
@@ -119,6 +119,8 @@ class Trader:
                 self.__participant['ledger'],
                 self.__participant['market_info'])
 
+
+
        #  print('init done')
 
     # @tenacity.retry(wait=tenacity.wait_fixed(3))
@@ -152,6 +154,19 @@ class Trader:
 
     # Core Functions, learn and act, called from outside
     async def pre_process_obs(self):
+        timing = self.__participant['timing']
+
+        # self.__timing.update({
+        #     'timezone': self.timezone,
+        #     # 'timezone': message['timezone'],
+        #     'duration': duration,
+        #     'last_round': (start_time - duration, start_time),
+        #     'current_round': (start_time, end_time),
+        #     'last_settle': (start_time + duration * (close_steps - 1), start_time + duration * close_steps),
+        #     'next_settle': (start_time + duration * close_steps, start_time + duration * (close_steps + 1)),
+        #     'stale_round': (start_time - duration * 10, start_time - duration * 9)
+        # })
+
         # print('entered preprocessing')
 
         # we need to make sure that the observation get put into the right order
@@ -159,15 +174,15 @@ class Trader:
 
         if 'reward_time_lag' in self.observation_variables:
             # calculations for reward time offset
-            n_rounds_act_to_r = (self.next_settle[0] - self.last_settle[0]) / self.round_duration
-            n_rounds_obs_to_act = (self.next_settle[0] - self.next_settle[0]) / self.round_duration # this is a remainder from earlier timing considerations, kept in for future flexibility
+            n_rounds_act_to_r = (timing['next_settle'][0] - timing['last_settle'][0]) / timing['round_duration']
+            n_rounds_obs_to_act = (timing['next_settle'][0] - timing['next_settle'][0]) / timing['round_duration'] # this is a remainder from earlier timing considerations, kept in for future flexibility
             n_rounds_obs_to_r = n_rounds_obs_to_act + n_rounds_act_to_r
-            n_rounds_current_to_r = (self.next_settle[0] - self.current_round[0]) / self.round_duration + n_rounds_obs_to_r
+            n_rounds_current_to_r = (timing['next_settle'][0] - timing['current_round'][0]) / timing['round_duration'] + n_rounds_obs_to_r
             obs_t_dict['reward_time_lag'] = n_rounds_current_to_r
 
 
         if 'generation_now' in self.observation_variables or 'load_now' in self.observation_variables or 'netload_now' in self.observation_variables:
-            gen_now, load_now = await self.__participant['read_profile'](self.current_round)
+            gen_now, load_now = await self.__participant['read_profile'](timing['current_round'])
             if 'generation_now' in self.observation_variables:
                 obs_t_dict['generation_now'] = gen_now
             if 'load_now' in self.observation_variables:
@@ -176,9 +191,9 @@ class Trader:
                 obs_t_dict['netload_now'] = load_now - gen_now
 
         if "t_settle" in self.observation_variables:
-            obs_t_dict['t_settle'] = self.next_settle[0]
+            obs_t_dict['t_settle'] = timing['next_settle'][0]
         if 'generation_settle' in self.observation_variables or 'load_settle' in self.observation_variables or 'netload_settle' in self.observation_variables:
-            gen_settle, load_settle = await self.__participant['read_profile'](self.next_settle)
+            gen_settle, load_settle = await self.__participant['read_profile'](timing['next_settle'])
             if 'generation_settle' in self.observation_variables:
                 obs_t_dict['generation_settle'] = gen_settle
             if 'load_settle' in self.observation_variables:
@@ -187,9 +202,9 @@ class Trader:
                 obs_t_dict['netload_settle'] = load_settle - gen_settle
 
         if "t_deliver" in self.observation_variables:
-            obs_t_dict['t_deliver'] = self.next_settle[0] + self.round_duration
+            obs_t_dict['t_deliver'] = timing['next_settle'][0] + timing['round_duration']
         if 'generation_deliver' in self.observation_variables or 'load_deliver' in self.observation_variables or 'netload_deliver' in self.observation_variables:
-            gen_deliver, load_deliver = await self.__participant['read_profile'](self.next_deliver)
+            gen_deliver, load_deliver = await self.__participant['read_profile'](timing['next_deliver'])
             if 'generation_deliver' in self.observation_variables:
                 obs_t_dict['generation_deliver'] = gen_deliver
             if 'load_deliver' in self.observation_variables:
@@ -198,16 +213,16 @@ class Trader:
                 obs_t_dict['netload_deliver'] = load_deliver - gen_deliver
 
         if 'SoC_settle' in self.observation_variables:
-            storage_schedule = await self.__participant['storage']['check_schedule'](self.next_settle)
-            soc = storage_schedule[self.next_settle]['projected_soc_end']
+            storage_schedule = await self.__participant['storage']['check_schedule'](timing['next_settle'])
+            soc = storage_schedule[timing['next_settle']]['projected_soc_end']
             obs_t_dict['SoC_settle'] = soc
 
         if 'actual_netload_now' in self.observation_variables:
             # get gen and load for current round
-            gen_now, load_now = await self.__participant['read_profile'](self.current_round)
+            gen_now, load_now = await self.__participant['read_profile'](timing['current_round'])
             # get battery schedule for current round
-            storage_schedule = await self.__participant['storage']['check_schedule'](self.current_round)
-            storage_schedule = storage_schedule[self.current_round]
+            storage_schedule = await self.__participant['storage']['check_schedule'](timing['current_round'])
+            storage_schedule = storage_schedule[timing['current_round']]
             storage = storage_schedule['energy_scheduled']
 
 
@@ -229,10 +244,10 @@ class Trader:
                 grid_buy_price = grid_stats['grid']['buy_price']
                 assert grid_buy_price >= grid_sell_price, 'grid buy price should be higher than grid sell price'
             else:
-                print('grid stats not available for participant', participant['id'], 'at timestep', self.next_settle, flush=True)
+                print('grid stats not available for participant', participant['id'], 'at timestep', timing['next_settle'], flush=True)
                 # raise ValueError('Grid stats not available')
         else:
-            print('settle stats not available for participant', participant['id'], 'at timestep', self.next_settle, flush=True)
+            print('settle stats not available for participant', participant['id'], 'at timestep', timing['next_settle'], flush=True)
             # raise ValueError('Settle stats not available')
 
         if 'avg_bid_price' in self.observation_variables:
@@ -252,7 +267,7 @@ class Trader:
                 obs_t_dict[obs] = self.__participant['market_info']['settle_stats'][obs]
 
         if "daytime_sin" in self.observation_variables or "daytime_cos" in self.observation_variables:
-            t_now = self.next_settle[0] #this should be a timestamp, so we convert it using datetime into the hour format
+            t_now = timing['next_settle'][0] #this should be a timestamp, so we convert it using datetime into the hour format
             t_now = datetime.datetime.fromtimestamp(t_now)
             t_now = t_now.hour + t_now.minute/60 + t_now.second/3600
             rad = 2 * np.pi * t_now / 24
@@ -265,7 +280,7 @@ class Trader:
                 obs_t_dict['daytime_cos'] = cos
 
         if "yeartime_sin" in self.observation_variables or "yeartime_cos" in self.observation_variables:
-            t_now = self.next_settle[0] #this should be a timestamp, so we convert it using datetime into the hour format
+            t_now = timing['next_settle'][0] #this should be a timestamp, so we convert it using datetime into the hour format
             # t_now = datetime.datetime.fromtimestamp(t_now) #ToDo: stuff is in seconds rn anyways
             rad = 2 * np.pi * t_now / (365 * 24 * 60 * 60)
             # print('t_now', t_now, flush=True)
@@ -285,11 +300,11 @@ class Trader:
         # obs = await self.pre_process_obs()
         # reward = await self._rewards.calculate()
 
-        obs = np.random.rand()
+        obs = np.random.rand(1, 11)[0].tolist()
         reward = np.random.rand()
 
         data = {'participant_id': self.__participant['id'], 'obs': obs, 'reward': reward}
-        self.__client.publish('/'.join([self.__participant['market_id'], 'algorithm', 'obs_rewards']), data)
+        self.__client.publish('/'.join([self.__participant['market_id'], 'algorithm', 'obs_rewards']), data, qos=2)
 
         # self.__client.publish('/'.join([self.market_id, 'simulation', 'end_turn']), self.participant_id,
         #                       user_property=('to', self.market_sid))
@@ -367,9 +382,12 @@ class Trader:
 
         # actions come in with a set order, they will need to be split up
         # send msg to request actions
+        # self.actions_event.clear()
+        # await asyncio.sleep(np.random.random())
         self.__client.publish('/'.join([self.__participant['market_id'], 'algorithm', 'get_actions']),
-                              self.__participant['id'])
+                              self.__participant['id'], qos=2)
                               # user_property=('to', self.market_sid))
+        # print(self.__participant['id'], 'waiting for actions')
         await self.actions_event.wait()
         self.actions_event.clear()
         # action_dict_t =
@@ -393,7 +411,8 @@ class Trader:
     async def get_actions_return(self, message):
         # await self.decode_actions(message)
         self.actions_dict_t = message
-        print(self.actions_dict_t)
+        # self.actions_dict_t = await self.decode_actions(message)
+        # print(self.__participant['id'], self.actions_dict_t)
         self.actions_event.set()
         # pass
 
@@ -421,6 +440,7 @@ class Trader:
 
         await self.send_obs_rewards()
         next_actions = await self.act()
+        # print(self.__participant['id'], 'waiting for next round')
         return next_actions
 
     async def reset(self, **kwargs):

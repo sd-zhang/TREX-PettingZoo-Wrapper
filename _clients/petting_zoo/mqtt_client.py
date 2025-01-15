@@ -152,7 +152,8 @@ class Client:
                 # await asyncio.sleep(random.randint(1, 5))
                 # actions = {'bif': (random.random(), random.random())}
                 # print(actions)
-                actions = json.dumps(self.env.actions['participant_id'])
+                actions = json.dumps(self.env.get_actions(participant_id))
+                # print('sending actions: ', actions)
                 self.client.publish('/'.join([self.market_id, 'algorithm', participant_id, 'get_actions_return']),
                                     actions, qos=2)
                 # pass
@@ -189,8 +190,8 @@ class Client:
         """
         self.client.loop_start()
         self.run_client()
-        self.fake_model()
-        # self.model.learn(total_timesteps=20 * 1e7)
+        # self.fake_model()
+        self.model.learn(total_timesteps=20 * 1e7)
         self.client.loop_stop()
 
 
@@ -213,6 +214,6 @@ if __name__ == '__main__':
             json_file = commentjson.load(f)
         return json_file
 
-    config = load_json_file('../../_configs/erp_test.json')
+    config = load_json_file('../../_configs/erp_test2.json')
     client = Client(server_address=server_address, config=config)
     client.run()
