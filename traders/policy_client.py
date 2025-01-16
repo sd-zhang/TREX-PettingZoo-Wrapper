@@ -297,11 +297,18 @@ class Trader:
         return obs_list
 
     async def send_obs_rewards(self):
-        # obs = await self.pre_process_obs()
-        # reward = await self._rewards.calculate()
-
-        obs = np.random.rand(1, 11)[0].tolist()
-        reward = np.random.rand()
+        # obs = np.random.rand(1, 11)[0].tolist()
+        # reward = np.random.rand()
+        try:
+            obs = await self.pre_process_obs()
+        except:
+            print('no obs yet probably step 0')
+            obs = [0] * len(self.observation_variables)
+        try:
+            reward = await self._rewards.calculate()
+        except:
+            print('no reward yet probably step 0')
+            reward = 0
 
         data = {'participant_id': self.__participant['id'], 'obs': obs, 'reward': reward}
         self.__client.publish('/'.join([self.__participant['market_id'], 'algorithm', 'obs_rewards']), data, qos=2)
@@ -387,7 +394,7 @@ class Trader:
         self.__client.publish('/'.join([self.__participant['market_id'], 'algorithm', 'get_actions']),
                               self.__participant['id'], qos=2)
                               # user_property=('to', self.market_sid))
-        # print(self.__participant['id'], 'waiting for actions')
+
         await self.actions_event.wait()
         self.actions_event.clear()
         # action_dict_t =
@@ -437,9 +444,11 @@ class Trader:
         #         }
         #     }
         #
-
+        # print(self.__participant['id'], 'sending obs/rewards')
         await self.send_obs_rewards()
+        # print(self.__participant['id'], 'waiting for actions')
         next_actions = await self.act()
+        # print(self.__participant['id'], 'got actions')
         # print(self.__participant['id'], 'waiting for next round')
         return next_actions
 

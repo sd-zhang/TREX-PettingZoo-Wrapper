@@ -108,7 +108,7 @@ class Client:
         client.subscribe("/".join([self.market_id, 'algorithm', 'obs_rewards']), qos=2)
         # client.subscribe("/".join([market_id, 'algorithm', 'rewards']), qos=0)
         # client.subscribe("/".join([market_id, 'simulation', 'start_generation']), qos=0)
-        # client.subscribe("/".join([market_id, 'simulation', 'end_generation']), qos=0)
+        client.subscribe("/".join([self.market_id, 'simulation', 'end_episode']), qos=2)
         # client.subscribe("/".join([market_id, 'simulation', 'end_simulation']), qos=0)
         # client.subscribe("/".join([market_id, 'simulation', 'is_market_online']), qos=0)
         # participant_id = self.participant.participant_id
@@ -131,9 +131,6 @@ class Client:
             'payload': message.payload.decode(),
             'properties': message.properties
         }
-        # print(message)
-        #
-        # # await self.msg_queue.put(msg)
         self.process_message(message)
         return 0
 
@@ -163,6 +160,12 @@ class Client:
             case 'obs_rewards':
                 payload = json.loads(payload)
                 self.env.obs_check(payload)
+
+            case 'end_episode':
+                # self.env.end_episode = True
+                print('end episode', self.env.end_episode, self.env.step_count, self.env.get_obs_event.is_set())
+                if not self.env.get_obs_event.is_set():
+                    self.env.send_ready()
 
     def fake_model(self):
         fake_actions = {'b1': [-0.96259534]}

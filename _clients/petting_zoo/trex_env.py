@@ -48,7 +48,8 @@ class Env(pz.ParallelEnv): #
         self.config = config
         self.render_mode = False
 
-        self.episode_length = 1440
+        self.episode_length = 1441
+        self.end_episode = False
 
         #set up agent names
         self.agents = [agent for agent in self.config['participants'] if self.config['participants'][agent]['trader'][
@@ -59,8 +60,8 @@ class Env(pz.ParallelEnv): #
         self.client_connected = threading.Event()
         self.get_actions_event = threading.Event()
         self.get_obs_event = threading.Event()
-        self.end_step_event = threading.Event()
-        self.end_episode_event = threading.Event()
+        # self.end_step_event = threading.Event()
+        # self.end_episode_event = threading.Event()
 
         # holding dicts
         self.actions = dict()
@@ -100,6 +101,9 @@ class Env(pz.ParallelEnv): #
     #     for i, agent in enumerate(self.agents):
     #         agent_bin_ids[agent] = (int(e) for e in list(np.binary_repr(i+1, self.num_one_hot_bits)))
     #     return agent_bin_ids
+
+    def send_ready(self):
+        self.client.publish('/'.join([self.market_id, 'algorithm', 'policy_sever_ready']), '', qos=2)
 
     def obs_check(self, payload):
         """ every time obs/rewards come in this function is called
@@ -179,25 +183,24 @@ class Env(pz.ParallelEnv): #
         # self.get_obs_event.wait()
         # TODO: DECODE ACTIONS AND STORE IN DICT: see what daniel did
         # {'Building_1': array([0.8560092], dtype=float32), 'Building_2': array([-0.94756734], dtype=float32)}
-        # print('--------step---------')
+        print('--------step---------')
         self.actions = self.decode_actions(actions)
         # self.actions = actions
         # print(self.actions)
         self.obs.clear()
         self.rewards.clear()
-        # print('ready to send actions')
-        self.client.publish('/'.join([self.market_id, 'algorithm', 'policy_sever_ready']), '', qos=2)
+        print('ready to send actions')
+        self.send_ready()
 
         # TODO: wait for observations and rewards
 
-        # print('waiting for obs (step)')
+        print('waiting for obs (step)')
         # print(self.obs)
         self.get_obs_event.wait()
-        # print('got observations (step)')
+        print('got observations (step)')
         # self.actions.clear()
         self.get_obs_event.clear()
         self.step_count += 1
-        # self.get_actions_event.wait()
 
         # if not self.step_count % 1000:
         #     print('learning for 10 seconds')
@@ -215,27 +218,40 @@ class Env(pz.ParallelEnv): #
         #     truncateds[agent] = True if self.t_env_steps >= self.episode_length else False
 
         # self.t_env_steps += 1
-
-        infos = {}
-        for agent in self.agents:
-            infos[agent] = dict()
-
-        terminations = {}
-        truncations = {}
-        terminated = not self.step_count % self.episode_length
-        for agent in self.agents:
-            terminations[agent] = True if terminated else False
-            truncations[agent] = True if terminated else False
+        self.end_episode = not self.step_count % self.episode_length
+        # if self.end_episode:
+        #     print('end episode', self.step_count)
 
         obs = self.obs
         rewards = self.rewards
+        terminations = dict()
+        truncations = dict()
+        infos = dict()
+        for agent in self.agents:
+            terminations[agent] = True if self.end_episode else False
+            truncations[agent] = True if self.end_episode else False
+            infos[agent] = dict()
+
+        # if self.end_episode:
+        #     print('end episode')
+        #     self.end_episode = False
+
+        # terminated = not self.step_count % self.episode_length
+
+        # if self.end_episode:
+        # for agent in self.agents:
+        #     terminations[agent] = True if self.end_episode else False
+        #     truncations[agent] = True if self.end_episode else False
+
+
         # print('next step: ', self.step_count, terminated, terminations, truncations)
-        # print('--------end step---------')
+        print('--------end step---------')
         return obs, rewards, terminations, truncations, infos
 
 
 
     def reset(self, seed=None, **kwargs):
+        print('--------reset---------')
         if not hasattr(self, 'max_storage'):
             self.max_storage = -np.inf
             self.min_storage = np.inf
@@ -250,11 +266,11 @@ class Env(pz.ParallelEnv): #
         self.client_connected.wait()
         self.obs.clear()
         self.rewards.clear()
-        self.client.publish('/'.join([self.market_id, 'algorithm', 'policy_sever_ready']), '', qos=2)
-        # print('waiting for obs (reset)')
+        self.send_ready()
+        print('waiting for obs (reset)')
         self.get_obs_event.wait()
         obs = self.obs
-        # print('got observations (reset)')
+        print('got observations (reset)')
         self.get_obs_event.clear()
 
         infos = {}
@@ -265,6 +281,7 @@ class Env(pz.ParallelEnv): #
 
         # print(obs['b1'].shape, infos)
         # print(obs, infos)
+        print('--------end reset---------')
         return obs, infos
 
     def close(self):
