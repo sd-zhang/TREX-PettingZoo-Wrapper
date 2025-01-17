@@ -3,16 +3,16 @@ from typing import Callable
 
 import numpy as np
 import supersuit as ss
-from TREX_env._utils.custom_Monitor import Custom_VecMonitor
-from TREX_env._utils.custom_vec_normalize import VecNormalize
-# from TREX_env._utils.custom_distributions import SquashedDiagGaussianDistribution as Squash
+from utils.custom_Monitor import Custom_VecMonitor
+from utils.custom_vec_normalize import VecNormalize
+# from TREX_env.utils.custom_distributions import SquashedDiagGaussianDistribution as Squash
 from sb3_contrib import RecurrentPPO
 from stable_baselines3.common.callbacks import CheckpointCallback
 from stable_baselines3.common.distributions import SquashedDiagGaussianDistribution
-# from TREX_env._utils.custom_distributions import SquashedDiagGaussianDistribution
+# from TREX_env.utils.custom_distributions import SquashedDiagGaussianDistribution
 from supersuit.vector.sb3_vector_wrapper import SB3VecEnvWrapper
 
-from trexenv import TrexEnv
+from trex_env import TrexEnv
 
 
 def exponential_schedule(initial_value: float, numer_of_steps: int, exponent: float) -> Callable[[float], float]:
@@ -22,7 +22,7 @@ def exponential_schedule(initial_value: float, numer_of_steps: int, exponent: fl
     and reduce the learning rate by 50% every 1/numer_of_steps of the total number of steps (as indicated by progress remaining)
 
     :param initial_value: Initial learning rate.
-    :return: schedule that computes
+    :return: schedule that computestrex_env.py
       current learning rate depending on remaining progress
     """
 

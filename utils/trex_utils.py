@@ -34,7 +34,7 @@ def add_envid_to_launchlist(trex_launch_lists, env_ids=None, force_separate_port
             client_name = trex_launch_lists[trex_launch_list_nbr][client_nbr][0]
             client_args = trex_launch_lists[trex_launch_list_nbr][client_nbr][1]
 
-            if client_name.endswith('sim_controller/sio_client.py'):
+            if client_name.endswith('sim_controller/client.py'):
 
                 sim_controller_list = trex_launch_lists[trex_launch_list_nbr][client_nbr][1]
 

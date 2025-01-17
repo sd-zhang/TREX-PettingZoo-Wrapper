@@ -1,11 +1,9 @@
-# from _clients.participants.participants import Residential
+# from clients.participants.participants import Residential
 # erp stands for Execute Remote Policy
-import tenacity
-# from TREX_env._utils.sml_utils import read_flag_x_times
-from TREX_Core._agent._utils.metrics import Metrics
+# from TREX_env.utils.sml_utils import read_flag_x_times
+from TREX_Core.utils.metrics import Metrics
 import asyncio
 # import serialize
-from multiprocessing import shared_memory
 import importlib
 import numpy as np
 import datetime
@@ -27,7 +25,7 @@ class Trader:
         other process that seeks to interact with TREX. These lists need to be already initialized before the gym trader
         attempts to connect with them.
 
-        params: kwargs -> dictionary created from the config json file in TREX_Core._configs
+        params: kwargs -> dictionary created from the config json file in TREX_Core.configs
         """
         # Some util stuffies
         # print('GOT TO THE GYM_AGENT INIT')

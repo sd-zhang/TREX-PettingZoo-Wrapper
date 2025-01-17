@@ -8,14 +8,14 @@ from cuid2 import Cuid
 import paho.mqtt.client as mqtt
 
 import random
-from TREX_Core._clients.markets.ns_common import NSDefault
+# from TREX_Core.clients.markets.ns_common import NSDefault
 
 import supersuit as ss
 from supersuit.vector.sb3_vector_wrapper import SB3VecEnvWrapper
-from _utils.ppo_recurrent_custom import RecurrentPPO
-from _utils.custom_Monitor import Custom_VecMonitor
-from _utils.custom_vec_normalize import VecNormalize
-from _utils.schedule import exponential_schedule
+from utils.ppo_recurrent_custom import RecurrentPPO
+from utils.custom_Monitor import Custom_VecMonitor
+from utils.custom_vec_normalize import VecNormalize
+from utils.schedule import exponential_schedule
 import commentjson
 
 
@@ -109,7 +109,7 @@ class Client:
         # client.subscribe("/".join([market_id, 'algorithm', 'rewards']), qos=0)
         # client.subscribe("/".join([market_id, 'simulation', 'start_generation']), qos=0)
         client.subscribe("/".join([self.market_id, 'simulation', 'end_episode']), qos=2)
-        # client.subscribe("/".join([market_id, 'simulation', 'end_simulation']), qos=0)
+        client.subscribe("/".join([self.market_id, 'simulation', 'end_simulation']), qos=0)
         # client.subscribe("/".join([market_id, 'simulation', 'is_market_online']), qos=0)
         # participant_id = self.participant.participant_id
         # loop = asyncio.get_running_loop()
@@ -217,6 +217,6 @@ if __name__ == '__main__':
             json_file = commentjson.load(f)
         return json_file
 
-    config = load_json_file('../../_configs/erp_test2.json')
+    config = load_json_file('../../configs/erp_test2.json')
     client = Client(server_address=server_address, config=config)
     client.run()

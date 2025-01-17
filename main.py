@@ -1,12 +1,12 @@
 if __name__ == '__main__':
     from TREX_Core.runner import Runner
-    # configuration to be used must be under _configs
+    # configuration to be used must be under configs
     # file name must be config name. Case sensitive.
     # it is sometimes possible to resume a simulation in case it crashes in the middle
     # however due to the complexity this is experimental and cannot be relied upon
     # runner = Runner(config='atco_1h_hc4_aggregate', resume=False, purge=True)
     # config = 'atco_1h_hc4_aggregate'
-    config = 'erp_test'
+    config = 'erp_test2'
     runner = Runner(config=config, resume=False, purge=True)
 
     # list of simulations to be performed.

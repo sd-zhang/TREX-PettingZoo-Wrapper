@@ -5,7 +5,7 @@ from typing import Any, ClassVar, Dict, Optional, Type, TypeVar, Union
 
 import numpy as np
 import torch as th
-from _utils.custom_buffer import RecurrentRolloutBuffer
+from utils.custom_buffer import RecurrentRolloutBuffer
 from gymnasium import spaces
 from sb3_contrib.common.recurrent.buffers import RecurrentDictRolloutBuffer
 from sb3_contrib.common.recurrent.policies import RecurrentActorCriticPolicy
