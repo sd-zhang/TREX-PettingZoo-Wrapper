@@ -183,21 +183,21 @@ class Env(pz.ParallelEnv): #
         # self.get_obs_event.wait()
         # TODO: DECODE ACTIONS AND STORE IN DICT: see what daniel did
         # {'Building_1': array([0.8560092], dtype=float32), 'Building_2': array([-0.94756734], dtype=float32)}
-        print('--------step---------')
+        # print('--------step---------')
         self.actions = self.decode_actions(actions)
         # self.actions = actions
         # print(self.actions)
         self.obs.clear()
         self.rewards.clear()
-        print('ready to send actions')
+        # print('ready to send actions')
         self.send_ready()
 
         # TODO: wait for observations and rewards
 
-        print('waiting for obs (step)')
+        # print('waiting for obs (step)')
         # print(self.obs)
         self.get_obs_event.wait()
-        print('got observations (step)')
+        # print('got observations (step)')
         # self.actions.clear()
         self.get_obs_event.clear()
         self.step_count += 1
@@ -245,7 +245,7 @@ class Env(pz.ParallelEnv): #
 
 
         # print('next step: ', self.step_count, terminated, terminations, truncations)
-        print('--------end step---------')
+        # print('--------end step---------')
         return obs, rewards, terminations, truncations, infos
 
 

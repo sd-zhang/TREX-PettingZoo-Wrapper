@@ -32,39 +32,7 @@ class Trader:
         # self.t_episode_steps = 0 # number of actions taken
         self.__participant = kwargs['trader_fns']
         self.__client = self.__participant['client']
-        self.actions_dict_t = dict()
-        # self.status = {
-        #     'weights_loading': False,
-        #     'weights_loaded': False,
-        #     'weights_saving': False,
-        #     'weights_saved': True
-        # }
-
-        ##### Setup the shared memory names based on config #####
-        # #ToDo: find a way to add the env number here
-        # self.name = self.__participant['id']
-        #
-        # assert 'env_id' in kwargs, 'Expected to find env_id in kwargs, needed to connect to shared memory manager'
-        # env_info = kwargs['env_id']
-        # #make sure 'env_id', 'smm_hash', 'smm_address' and 'smm_port' in kwargs
-        #
-        # env_id = kwargs['env_id']
-        # self.action_list_name = self.name+'_' + str(env_id) +  '_actions'
-        # # print('Gym agent', self.name, 'action list name', self.action_list_name, flush=True)
-        # self.observation_list_name = self.name+'_' + str(env_id) +  '_obs'
-        # # print('Gym agent', self.name, 'observation list name', self.observation_list_name, flush=True)
-        # self.reward_list_name = self.name+'_' + str(env_id) +  '_reward'
-        # print('Gym agent', self.name, 'reward list name', self.reward_list_name, flush=True)
-        ''' 
-        Shared lists get initialized on TREXENV side, so all that the agents have to do is connect to their respective 
-        observation and action lists. Agents dont have to worry about making the actions pretty, they just have to send
-        them into the buffer. 
-        '''
-
-        # self._check_sharedmemory()
-        # self.shared_list_action = shared_memory.ShareableList(name=self.action_list_name)
-        # self.shared_list_observation = shared_memory.ShareableList(name=self.observation_list_name)
-        # self.shared_list_reward = shared_memory.ShareableList(name=self.reward_list_name)
+        # self.actions_dict_t = dict()
         self.actions = dict()
         self.actions_event = asyncio.Event()
 
@@ -73,24 +41,23 @@ class Trader:
 
         #ToDo - Daniel - Think about a nicer way of doing this
         #decode actions, load heuristics if necessary
-        # self.allowed_actions = kwargs['actions']
-        # self.learned_actions = {}
-        # self.heuristic_actions = {}
-        # for action in kwargs['actions']:
-        #
-        #     # Deprecated
-        #     if kwargs['actions'][action]['heuristic'] == 'learned':
-        #         self.learned_actions[action] = None
-        #     elif kwargs['actions'][action]['heuristic'] == 'netload':
-        #         assert 'quantity' in action, 'Netload heuristic only works for quantity actions'
-        #         self.heuristic_actions[action] = None
-        #     elif kwargs['actions'][action]['heuristic'] == 'fixed':
-        #         assert 'price' in action, 'Fixed heuristic only works for price actions'
-        #         self.heuristic_actions[action] = None
-        #     else:
-        #         raise NotImplementedError('Only learned actions and netload quantities are supported in the gym agent. Please reassign ', action, 'to learned', flush=True)
-        #
-        # assert 'storage' in self.learned_actions, 'storage not in learned actions, WTF?'
+        self.allowed_actions = kwargs['actions']
+        self.learned_actions = {}
+        self.heuristic_actions = {}
+        for action in kwargs['actions']:
+            # Deprecated
+            if kwargs['actions'][action]['heuristic'] == 'learned':
+                self.learned_actions[action] = None
+            elif kwargs['actions'][action]['heuristic'] == 'netload':
+                assert 'quantity' in action, 'Netload heuristic only works for quantity actions'
+                self.heuristic_actions[action] = None
+            elif kwargs['actions'][action]['heuristic'] == 'fixed':
+                assert 'price' in action, 'Fixed heuristic only works for price actions'
+                self.heuristic_actions[action] = None
+            else:
+                raise NotImplementedError('Only learned actions and netload quantities are supported in the gym agent. Please reassign ', action, 'to learned', flush=True)
+
+        assert 'storage' in self.learned_actions, 'storage not in learned actions, WTF?'
 
 
 
@@ -168,6 +135,8 @@ class Trader:
         # print('entered preprocessing')
 
         # we need to make sure that the observation get put into the right order
+        # print(self.__participant['market_info'])
+
         obs_t_dict = {key: None for key in self.observation_variables}
 
         if 'reward_time_lag' in self.observation_variables:
@@ -233,8 +202,9 @@ class Trader:
         settle_stats = self.__participant['market_info']['settle_stats']
         participant = self.__participant
         if 'settled_time' in settle_stats:
-            ts_settle_stats = settle_stats['settled_time']
-            ts_settle_stats = str(tuple(ts_settle_stats))
+            ts_settle_stats = tuple(settle_stats['settled_time'])
+            # print(type(settle_stats['settled_time']))
+            # ts_settle_stats = ts_settle_stats
 
             if ts_settle_stats in participant['market_info']:
                 grid_stats = participant['market_info'][ts_settle_stats]
@@ -297,16 +267,16 @@ class Trader:
     async def send_obs_rewards(self):
         # obs = np.random.rand(1, 11)[0].tolist()
         # reward = np.random.rand()
-        try:
-            obs = await self.pre_process_obs()
-        except:
-            print('no obs yet probably step 0')
-            obs = [0] * len(self.observation_variables)
-        try:
-            reward = await self._rewards.calculate()
-        except:
-            print('no reward yet probably step 0')
-            reward = 0
+        # print(self.__participant['market_info'])
+        # settle_stats = self.__participant['market_info']['settle_stats']
+        # print(settle_stats)
+        # try:
+        obs = await self.pre_process_obs()
+        reward = await self._rewards.calculate()
+        # print(obs, reward)
+        # except:
+        #     print('no reward yet probably step 0')
+        #     reward = 0
 
         data = {'participant_id': self.__participant['id'], 'obs': obs, 'reward': reward}
         self.__client.publish('/'.join([self.__participant['market_id'], 'algorithm', 'obs_rewards']), data, qos=2)
@@ -395,6 +365,10 @@ class Trader:
 
         await self.actions_event.wait()
         self.actions_event.clear()
+        actions = await self.decode_actions()
+        # print(actions)
+
+        return actions
         # action_dict_t =
 
         #     }
@@ -411,11 +385,11 @@ class Trader:
         # print("gym agent action_dict_t", action_dict_t)
 
         # self.t_episode_steps += 1
-        return self.actions_dict_t
+        # return self.actions_dict_t
 
     async def get_actions_return(self, message):
         # await self.decode_actions(message)
-        self.actions_dict_t = message
+        self.actions = message
         # self.actions_dict_t = await self.decode_actions(message)
         # print(self.__participant['id'], self.actions_dict_t)
         self.actions_event.set()
@@ -465,18 +439,26 @@ class Trader:
         3. A storage action
 
         """
+        # print(self.actions, self.learned_actions)
+        for idx, action in enumerate(self.learned_actions):
+            try:
+                self.learned_actions[action] = self.actions[idx]
+            except IndexError:
+                self.learned_actions[action] = 0
 
         #ToDo: check if self.next_settle outside of our simulaion
-        gen_settle, load_settle = await self.__participant['read_profile'](self.next_settle)
-        gen_deliver, load_deliver = await self.__participant['read_profile'](self.next_deliver)
+        next_settle = self.__participant['timing']['next_settle']
+        gen_settle, load_settle = await self.__participant['read_profile'](next_settle)
+        # gen_deliver, load_deliver = await self.__participant['read_profile'](self.next_deliver)
 
 
         assert 'storage' in self.learned_actions, 'storage neither in learned actions'
+        # print(self.learned_actions['storage'])
         target_storage_charge = -(load_settle - gen_settle) + self.learned_actions['storage'] *5000  #FixMe: find a way to implement this into the PPO agent instead
         # target_storage_charge = min(max(target_storage_charge, -5000), 5000)
-        storage_schedule = await self.__participant['storage']['check_schedule'](self.next_settle)
+        storage_schedule = await self.__participant['storage']['check_schedule'](next_settle)
         # print(storage_schedule)
-        min_max_storage_charge = storage_schedule[self.next_settle]['energy_potential']
+        min_max_storage_charge = storage_schedule[next_settle]['energy_potential']
         storage_charge = min(max(target_storage_charge, min_max_storage_charge[0]), min_max_storage_charge[1])
 
         if 'price_bid' not in self.learned_actions:
@@ -510,8 +492,8 @@ class Trader:
 
 
         decoded_action = dict()
-        decoded_action['bids'] = { str(self.next_settle): {'quantity': quantity_bid, 'price': price_bid}}
-        decoded_action['asks'] = {'solar': { str(self.next_settle): {'quantity': quantity_ask, 'price': price_ask}}}
-        decoded_action['bess'] = { str(self.next_settle): storage_charge }
-
+        decoded_action['bids'] = {str(next_settle): {'quantity': quantity_bid, 'price': price_bid}}
+        decoded_action['asks'] = {'solar': {str(next_settle): {'quantity': quantity_ask, 'price': price_ask}}}
+        decoded_action['bess'] = {str(next_settle): storage_charge}
+        # print(decoded_action)
         return decoded_action
