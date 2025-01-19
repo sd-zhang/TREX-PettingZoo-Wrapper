@@ -397,7 +397,6 @@ class Market:
             'price': message['price'],
             'time_submission': self.__time(),
             'quantity': message['quantity'],
-            'lock': False
         }
 
         # create a new time slot container if the time slot doesn't exist
@@ -503,10 +502,7 @@ class Market:
             self.__round_ask_stats['total_ask_quantity'] = 0
             self.__round_ask_stats['std_ask_quantity'] = 0
 
-        if 'ask' not in self.__open[time_delivery]:
-            return
-
-        if 'bid' not in self.__open[time_delivery]:
+        if {'ask', 'bid'} > self.__open[time_delivery].keys():
             return
 
         total_supply_quantity = sum(ask['quantity'] for ask in asks)
@@ -526,23 +522,6 @@ class Market:
                 continue
 
             if bid['participant_id'] == ask['participant_id']:
-                continue
-
-            # if bid['source'] != ask['source']:
-            #     continue
-
-            if bid['lock'] or ask['lock']:
-                continue
-
-            if bid['quantity'] <= 0 or ask['quantity'] <= 0:
-                continue
-
-            if bid['participant_id'] not in self.__participants:
-                bid['lock'] = True
-                continue
-
-            if ask['participant_id'] not in self.__participants:
-                ask['lock'] = True
                 continue
 
             # Settle highest price bids with lowest price asks
@@ -628,12 +607,7 @@ class Market:
         if quantity <= 0:
             return
 
-        if locking:
-            # lock the bid and ask until confirmations are received
-            ask['lock'] = True
-            bid['lock'] = True
-
-        commit_id = cuid()
+        commit_id = Cuid().generate(6)
         settlement_time = self.__timing['current_round'][1]
 
         settlement_price_sell = round_ask_price

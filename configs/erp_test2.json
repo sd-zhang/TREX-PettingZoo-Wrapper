@@ -1,0 +1,213 @@
+{
+  //sawtooth profile: "use_synthetic_profile": "test_profile_1kw_square_p2+1",
+  "version": "3.7.2",
+  "study": {
+    "name": "mqtt_test_backport",
+    "description": "",
+    "start_datetime": "2018-07-01 0:0:0",
+    "start_datetime_sequence": "sequential",
+    "timezone": "America/Vancouver",
+    "days": 2,
+    "generations": 1000,
+    "time_step_size": 60,
+    "sim_root": "simulations/"
+  },
+  "server": {
+    "host": "localhost",
+    "port": 1883
+  },
+  "policy_server": {
+    "type": "pettingzoo"
+  },
+  "market": {
+    "id": "",
+    "type": "MicroTE3DCM",
+    "close_steps": 2,
+    "grid": {
+      "price": 0.069,
+      "fee_ratio": 1.1
+    }
+  },
+  "participants": {
+    "Building_1": {
+      // I'd recommend keeping the name the same as the name of the synthetic profile
+      "type": "Residential",
+      "trader": {
+        "track_metrics": true,
+        "type": "policy_client",
+        "actions": {
+          "price_ask": {
+            "heuristic": "fixed",
+            "max": 0.1449,
+            "min": 0.069
+          },
+          // "learned, keep the min and max the same as the market
+          "quantity_ask": {
+            "heuristic": "netload",
+            "max": 10,
+            "min": 0
+          },
+          // "learned, adjust the  max accordingly? Min need to stay at 0
+
+          "price_bid": {
+            "heuristic": "fixed",
+            "max": 0.1449,
+            "min": 0.069
+          },
+          // "learned, keep the min and max the same as the market
+          "quantity_bid": {
+            "heuristic": "netload",
+            "max": 10,
+            "min": 0
+          },
+          // "learned, adjust the max accordingly? Min need to stay at 0
+          "storage": {
+            "heuristic": "learned",
+            "max": 5000,
+            "min": -5000
+          }
+          //"learned", "greedy"
+        },
+        "learning": true,
+        "observations": [
+          "daytime_sin",
+          "daytime_cos",
+          "yeartime_sin",
+          "yeartime_cos",
+          "netload_settle",
+          //"netload_deliver", "netload_settle", "netload_now",
+          "SoC_settle",
+          //SoC, Need to check if this actyuall works!!!!
+          "actual_netload_now",
+          "avg_bid_price",
+          "total_bid_quantity",
+          "avg_ask_price",
+          "total_ask_quantity"
+
+          //"avg_ask_quantity",       // might not be needed since market settles in expecation
+          // "avg_bid_quantity",      // might not be needed since market settles in expecation
+          //"std_ask_quantity",       // might not be needed since market settles in expecation
+          // "std_bid_quantity",      // might not be needed since market settles in expecation
+          //"total_settled_quantity", // might not be needed since it can be inferred from the other quantities
+        ],
+        //
+        "reward_function": "net_profit",
+        // "economic_advantage", "net_profit", "grid_equivalent"
+        "use_synthetic_profile": "test_profile_1kw_constant"
+      },
+      "load": {
+        "scale": 1
+      },
+      // do not change, the load will stay fixed at scale 1
+      "generation": {
+        "scale": 0.5
+      },
+      // do not change, the generation will stay fixed at scale 1
+      "storage": {
+        // (optional) Defines the storage system to be attached to a participant
+        "type": "Bess",
+        // storage type, must exist in devices
+        "capacity": 6400,
+        // Usable capacity defined in Wh
+        "power": 5000,
+        // constant charge/discharge rate defined in W
+        "efficiency": 0.95,
+        // one way efficiency. round-trip efficiency is efficiency^2
+        "monthly_sdr": 0.05
+        // monthly self-discharge rate as a fraction of usable capacity
+      }
+
+    },
+    "Building_2": {
+      // I'd recommend keeping the name the same as the name of the synthetic profile
+      "type": "Residential",
+      "trader": {
+        "track_metrics": true,
+        "type": "policy_client",
+        "P_max": 3000,
+        "actions": {
+          "price_ask": {
+            "heuristic": "fixed",
+            "max": 0.1449,
+            "min": 0.069
+          },
+          // "learned, keep the min and max the same as the market
+          "quantity_ask": {
+            "heuristic": "netload",
+            "max": 10,
+            "min": 0
+          },
+          // "learned, adjust the  max accordingly? Min need to stay at 0
+
+          "price_bid": {
+            "heuristic": "fixed",
+            "max": 0.1449,
+            "min": 0.069
+          },
+          // "learned, keep the min and max the same as the market
+          "quantity_bid": {
+            "heuristic": "netload",
+            "max": 10,
+            "min": 0
+          },
+          // "learned, adjust the max accordingly? Min need to stay at 0
+          "storage": {
+            "heuristic": "learned",
+            "max": 5000,
+            "min": -5000
+          }
+          //"learned", "greedy"
+        },
+        "learning": true,
+        "observations": [
+          "daytime_sin",
+          "daytime_cos",
+          "yeartime_sin",
+          "yeartime_cos",
+          "netload_settle",
+          //"netload_deliver", "netload_settle", "netload_now",
+          "SoC_settle",
+          //SoC, Need to check if this actyuall works!!!!
+
+          "actual_netload_now",
+          "avg_bid_price",
+          "total_bid_quantity",
+          "avg_ask_price",
+          "total_ask_quantity"
+
+          //"avg_ask_quantity",       // might not be needed since market settles in expecation
+          // "avg_bid_quantity",      // might not be needed since market settles in expecation
+          //"std_ask_quantity",       // might not be needed since market settles in expecation
+          // "std_bid_quantity",      // might not be needed since market settles in expecation
+          //"total_settled_quantity", // might not be needed since it can be inferred from the other quantities
+        ],
+        //
+        "reward_function": "net_profit",
+        // "economic_advantage", "net_profit"
+        "use_synthetic_profile": "test_profile_1kw_constant"
+      },
+      "load": {
+        "scale": 0.5
+      },
+      // do not change, the load will stay fixed at scale 1
+      "generation": {
+        "scale": 1
+      },
+      // do not change, the generation will stay fixed at scale 1
+      "storage": {
+        // (optional) Defines the storage system to be attached to a participant
+        "type": "Bess",
+        // storage type, must exist in devices
+        "capacity": 6400,
+        // Usable capacity defined in Wh
+        "power": 5000,
+        // constant charge/discharge rate defined in W
+        "efficiency": 0.95,
+        // one way efficiency. round-trip efficiency is efficiency^2
+        "monthly_sdr": 0.05
+        // monthly self-discharge rate as a fraction of usable capacity
+      },
+      "use_synthetic_profile": "test_profile_1kw_constant"
+    }
+  }
+}

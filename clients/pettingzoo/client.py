@@ -70,7 +70,7 @@ class Client:
 
     def on_connect(self, client, userdata, flags, reason_code, properties):
 
-        print('connected')
+        print('connected pettingzoo')
         market_id = self.env.market_id
         # print("market_id", market_id)
         # pass

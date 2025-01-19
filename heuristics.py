@@ -5,7 +5,7 @@ import shutil
 import numpy as np
 import tensorflow as tf
 
-from clients.petting_zoo.trex_env import TrexEnv
+from clients.pettingzoo.trex_env import TrexEnv
 
 '''The goal of this piece of code is to show how to:
     - launch the TREX-core (our digityal twin)

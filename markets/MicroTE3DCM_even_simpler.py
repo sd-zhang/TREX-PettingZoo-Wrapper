@@ -1,5 +1,6 @@
 from operator import itemgetter
 from cuid2 import Cuid
+from typing import override
 from TREX_Core.markets.base.DoubleAuction import Market as BaseMarket
 
 #TODO: THIS IS A SPECIAL MARKET FOR DANIEL C MAY
@@ -33,73 +34,30 @@ class Market(BaseMarket):
         self.__round_ask_stats = dict()
         # end new data buffers for Daniel C May
 
-    async def __start_round(self, duration):
-        """
-        Message all participants the start of the current round, as well as the duration
 
-        Because having somewhat synchronized timing is key to proper market operation, the start round message mostly
-        contains useful time intervals. Additional info that are deemed useful can be included,
-        such as grid prices that change with time.
-        As always, it is advised to keep the message length minimal to maximize performance and to conserve bandwidth.
 
-        Participants can take the times in this message and determine clock differences and communication delays.
-        Will be necessary in real-time to ensure actions are received by the market before the start of the next round,
-        as the market does not wait in real-time mode
-        """
-        start_time = self.__time()
-        self.__reset_status()
-        # market_info = {
-        #     str(self.__timing['current_round']): {
-        #         'grid': {
-        #             'buy_price': self.__grid.buy_price(),
-        #             'sell_price': self.__grid.sell_price()
-        #         }
-        #     },
-        #     str(self.__timing['next_settle']): {
-        #         'grid': {
-        #             'buy_price': self.__grid.buy_price(),
-        #             'sell_price': self.__grid.sell_price()
-        #         }
-        #     },
-        #     # update start round message for Daniel C May
-        #     "settle_stats": self.__round_settle_stats
+
+
+
+    @override
+    async def get_market_info(self):
+        market_info = await super().get_market_info()
+
+        # "settle_stats": self.__round_settle_stats
         # }
-        market_info = {
-            'current_round': (self.__grid.buy_price(), self.__grid.sell_price()),
-            'next_settle': (self.__grid.buy_price(), self.__grid.sell_price())
-        }
         # update start round message for Daniel C May
         # market.update(self.__round_settle_stats)
         self.__round_settle_stats = dict()
         for key in self.__round_settle_stats_buf:
             self.__round_settle_stats_buf[key].clear()
 
-        #ToDo: include variances
-        self.__round_bid_stats = dict()
-        self.__round_ask_stats = dict()
+        # # ToDo: include variances
+        # self.__round_bid_stats = dict()
+        # self.__round_ask_stats = dict()
 
-        start_msg = [
-            start_time,
-            duration,
-            self.__timing['close_steps'],
-            market_info
-        ]
+        market_info["settle_stats"] = self.__round_settle_stats
 
-        # start_msg = {
-        #     'time': start_time,
-        #     'duration': duration,
-        #     'timezone': self.__timing['timezone'],
-        #     'last_round': self.__timing['last_round'],
-        #     'current_round': self.__timing['current_round'],
-        #     'last_settle': self.__timing['last_settle'],
-        #     'next_settle': self.__timing['next_settle'],
-        #     'market_info': market_info,
-        # }
-
-
-        # await self.__client.emit('start_round', start_msg)
-        self.__client.publish('/'.join([self.market_id, 'start_round']), start_msg,
-                              user_property=('to', '^all'))
+        return market_info
 
     async def __match(self, time_delivery):
         """Matches bids with asks for a single source type in a time slot
