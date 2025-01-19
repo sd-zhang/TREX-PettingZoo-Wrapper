@@ -1,5 +1,7 @@
 import json
 import datetime
+import time
+
 import numpy as np
 # import time
 
@@ -17,6 +19,7 @@ from utils.custom_Monitor import Custom_VecMonitor
 from utils.custom_vec_normalize import VecNormalize
 from utils.schedule import exponential_schedule
 import commentjson
+from pprint import pprint
 
 
 
@@ -28,9 +31,10 @@ class Client:
         self.server_address = server_address
         self.client = mqtt.Client(client_id=Cuid(length=10).generate(),
                                   callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
-        # self.config = config  # temporary
-        self.config = config
-        self.market_id = 'training'
+        # pprint(config)
+        self.config = config  # temporary
+        # self.config = config
+        # self.market_id = config['market']['id']
 
         # TODO: initialize trex env
 
@@ -88,9 +92,11 @@ class Client:
         # self.ns = NSDefault(self.env)
 
     def on_connect(self, client, userdata, flags, reason_code, properties):
-        # market_id = self.config['market']['id']  # temporary
+
 
         print('connected')
+        market_id = self.env.market_id
+        # print("market_id", market_id)
         # pass
         # market_id = self.market.market_id
         # print('Connected market', market_id)
@@ -104,13 +110,13 @@ class Client:
         # client.subscribe("/".join([market_id, 'meter']), qos=0)
         #
         # # client.subscribe("/".join([market_id, 'simulation', '+']), qos=0)
-        client.subscribe("/".join([self.market_id, 'algorithm', 'get_actions']), qos=2)
-        client.subscribe("/".join([self.market_id, 'algorithm', 'obs_rewards']), qos=2)
+        client.subscribe("/".join([market_id, 'algorithm', 'get_actions']), qos=2)
+        client.subscribe("/".join([market_id, 'algorithm', 'obs_rewards']), qos=2)
         # client.subscribe("/".join([market_id, 'algorithm', 'rewards']), qos=0)
         # client.subscribe("/".join([market_id, 'simulation', 'start_generation']), qos=0)
-        client.subscribe("/".join([self.market_id, 'simulation', 'end_episode']), qos=2)
-        client.subscribe("/".join([self.market_id, 'simulation', 'end_simulation']), qos=0)
-        # client.subscribe("/".join([market_id, 'simulation', 'is_market_online']), qos=0)
+        client.subscribe("/".join([market_id, 'simulation', 'end_episode']), qos=2)
+        client.subscribe("/".join([market_id, 'simulation', 'end_simulation']), qos=0)
+        client.subscribe("/".join([market_id, 'simulation', 'is_policy_server_online']), qos=0)
         # participant_id = self.participant.participant_id
         # loop = asyncio.get_running_loop()
         # user_property=('to', self.market_sid))
@@ -118,6 +124,7 @@ class Client:
         # self.client.publish('/'.join([self.market_id, 'algorithm', 'policy_sever_ready']), '')
         # time.sleep(5)
         self.env.client_connected.set()
+        # self.env.send_ready()
 
         # print(self.env.client_connected)
 
@@ -151,7 +158,7 @@ class Client:
                 # print(actions)
                 actions = json.dumps(self.env.get_actions(participant_id))
                 # print('sending actions: ', actions)
-                self.client.publish('/'.join([self.market_id, 'algorithm', participant_id, 'get_actions_return']),
+                self.client.publish('/'.join([self.env.market_id, 'algorithm', participant_id, 'get_actions_return']),
                                     actions, qos=2)
                 # pass
                 # self.env.poke_count += 1
@@ -160,21 +167,26 @@ class Client:
             case 'obs_rewards':
                 payload = json.loads(payload)
                 self.env.obs_check(payload)
-
             case 'end_episode':
                 # self.env.end_episode = True
                 print('end episode', self.env.end_episode, self.env.step_count, self.env.get_obs_event.is_set())
                 if not self.env.get_obs_event.is_set():
                     self.env.send_ready()
+            case 'is_policy_server_online':
+                if self.env.client_connected.is_set() and not self.env.get_obs_event.is_set():
+                    self.env.send_ready()
+                # print('policy server online')
 
     def fake_model(self):
         fake_actions = {'b1': [-0.96259534]}
         # fake_actions = {'Building_1': [-0.96259534], 'Building_2': [-0.96259534]}
         # print('fake model')
-        reset_out = self.final_env.reset()
-        print('reset_out: ', reset_out)
+        # reset_out = self.final_env.reset()
+        # print('reset_out: ', reset_out)
         while True:
-            self.final_env.step(fake_actions)
+            time.sleep(1)
+            # print('step')
+            # self.final_env.step(fake_actions)
 
     def run_client(self):
         self.client.on_connect = self.on_connect
@@ -194,7 +206,7 @@ class Client:
         self.client.loop_start()
         self.run_client()
         # self.fake_model()
-        self.model.learn(total_timesteps=20 * 1e7)
+        self.model.learn(total_timesteps=self.config['study']['total_steps'])
         self.client.loop_stop()
 
 
@@ -202,6 +214,8 @@ if __name__ == '__main__':
     # import socket
     import argparse
     import importlib
+    import os
+    from TREX_Core.runner.runner import get_config
 
     parser = argparse.ArgumentParser(description='')
     parser.add_argument('--host', default="localhost", help='')
@@ -210,13 +224,9 @@ if __name__ == '__main__':
     args = parser.parse_args()
     # server_address = ''.join(['http://', args.host, ':', str(args.port)])
     server_address = args.host
-    # client = Client(server_address=server_address,
-    #                 config=json.loads(args.config))
-    def load_json_file(file_path):
-        with open(file_path) as f:
-            json_file = commentjson.load(f)
-        return json_file
 
-    config = load_json_file('../../configs/erp_test2.json')
+    root_dir = 'E:/git/TREX-PettingZoo-Wrapper'
+    config = get_config('erp_test2', root_dir=root_dir)
+    config['market']['id'] = 'training'
     client = Client(server_address=server_address, config=config)
     client.run()

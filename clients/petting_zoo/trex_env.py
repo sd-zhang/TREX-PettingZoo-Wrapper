@@ -46,9 +46,10 @@ class Env(pz.ParallelEnv): #
         # print(self.client)
         self.client = client
         self.config = config
+        self.market_id = config['market']['id']
         self.render_mode = False
 
-        self.episode_length = 1441
+        self.episode_length = self.config['study']['episode_steps']
         self.end_episode = False
 
         #set up agent names
@@ -56,7 +57,7 @@ class Env(pz.ParallelEnv): #
             'type'] == 'policy_client']
         self.possible_agents = self.agents #change if that ever becomes a thing
 
-        self.market_id = 'training'
+
         self.client_connected = threading.Event()
         self.get_actions_event = threading.Event()
         self.get_obs_event = threading.Event()
