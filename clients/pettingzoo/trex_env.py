@@ -1,21 +1,12 @@
-import numpy as np
 import os
-# import pandas as pd
+import threading
+import numpy as np
 import pettingzoo as pz
 from gymnasium import spaces
-import threading
-import random
+
 
 # #ToDo: check how we're fucking up the reset, we're overflowing 2h?
-#
-# def bin_array(num, m):
-#     """Convert a positive integer num into an m-bit bit vector"""
-#     return np.array(list(np.binary_repr(num).zfill(m))).astype(np.int8)
-# def to_categorical(y, num_classes):
-#     """ 1-hot encodes a tensor """
-#     return np.eye(num_classes, dtype='uint8')[y]
-
-class Env(pz.ParallelEnv): #
+class Env(pz.ParallelEnv):  #
     """
 
     """
@@ -41,9 +32,6 @@ class Env(pz.ParallelEnv): #
         'action_space_type': list of 'discrete' or 'continuous' where len(list) == n_actions,
         'seed': random seed, not necessarily fully enforced yet! #FixMe: enforce random seeds properly
         """
-
-        # self.loop=loop
-        # print(self.client)
         self.client = client
         self.config = config
         self.market_id = config['market']['id']
@@ -52,17 +40,14 @@ class Env(pz.ParallelEnv): #
         self.episode_length = self.config['study']['episode_steps']
         self.end_episode = False
 
-        #set up agent names
+        # set up agent names
         self.agents = [agent for agent in self.config['participants'] if self.config['participants'][agent]['trader'][
             'type'] == 'policy_client']
-        self.possible_agents = self.agents #change if that ever becomes a thing
-
+        self.possible_agents = self.agents  # change if that ever becomes a thing
 
         self.client_connected = threading.Event()
         self.get_actions_event = threading.Event()
         self.get_obs_event = threading.Event()
-        # self.end_step_event = threading.Event()
-        # self.end_episode_event = threading.Event()
 
         # holding dicts
         self.actions = dict()
@@ -93,15 +78,6 @@ class Env(pz.ParallelEnv): #
 
     def render(self, mode="human"):
         raise NotImplementedError
-    # def async_sender(self, sender):
-    #     async with sender:
-    #         sender.send('event')
-
-    # def bin_array(self):
-    #     agent_bin_ids = dict()
-    #     for i, agent in enumerate(self.agents):
-    #         agent_bin_ids[agent] = (int(e) for e in list(np.binary_repr(i+1, self.num_one_hot_bits)))
-    #     return agent_bin_ids
 
     def send_ready(self):
         self.client.publish('/'.join([self.market_id, 'algorithm', 'policy_sever_ready']), '', qos=2)
@@ -121,11 +97,6 @@ class Env(pz.ParallelEnv): #
         self.obs[participant_id] = np.array(obs)
         self.rewards[participant_id] = reward
 
-        # {'Building_1': array([5.00000000e-01, 8.66025404e-01, -6.60019629e-01, -7.51248354e-01,
-        #                       8.38166700e+02, 0.00000000e+00, 8.51166700e+02, 6.80000000e-02,
-        #                       0.00000000e+00, 1.44900000e-01, 0.00000000e+00, 0.00000000e+00,
-        #                       1.00000000e+00])
-
         if self.obs.keys() == set(self.agents):
             # print(self.obs.keys())
             self.get_obs_event.set()
@@ -135,7 +106,6 @@ class Env(pz.ParallelEnv): #
             return []
         if participant_id in self.actions:
             return self.actions[participant_id]
-
 
     def decode_actions(self, actions):
         agent_actions_decoded = {}
@@ -167,7 +137,7 @@ class Env(pz.ParallelEnv): #
         return agent_actions_decoded
 
     def step(self, actions):
-        #ToDo: change this to process an action dict of the form {agent_name: action}
+        # ToDo: change this to process an action dict of the form {agent_name: action}
         '''
         https://gymnasium.farama.org/api/env/#gymnasium.Env.step
         :return Obs, reward (list of floats), terminated (bool), truncated (bool), info (dict)
@@ -179,7 +149,6 @@ class Env(pz.ParallelEnv): #
 
         # TODO: wait for agents(TBD) to request actions. keep count to check if all erp agents requested actions
         # TODO: clear the obs/rewards dict
-
 
         # self.get_obs_event.wait()
         # TODO: DECODE ACTIONS AND STORE IN DICT: see what daniel did
@@ -203,25 +172,7 @@ class Env(pz.ParallelEnv): #
         self.get_obs_event.clear()
         self.step_count += 1
 
-        # if not self.step_count % 1000:
-        #     print('learning for 10 seconds')
-        #     time.sleep(10)
-        # observations are from the beginning of the next round
-        # rewards are as a consequence of these actions which also gets sent out at the start of the next round
-        # essentially PZ and TREX are out of phase by half a round
-
-        # TODO: check if sim controller sent the terminated signal
-        # self.end_episode_event.wait()
-        # terminateds = {}
-        # truncateds = {}
-        # for agent in self.agents:
-        #     terminateds[agent] =  True if self.t_env_steps >= self.episode_length else False
-        #     truncateds[agent] = True if self.t_env_steps >= self.episode_length else False
-
-        # self.t_env_steps += 1
         self.end_episode = not self.step_count % self.episode_length
-        # if self.end_episode:
-        #     print('end episode', self.step_count)
 
         obs = self.obs
         rewards = self.rewards
@@ -232,27 +183,13 @@ class Env(pz.ParallelEnv): #
             terminations[agent] = True if self.end_episode else False
             truncations[agent] = True if self.end_episode else False
             infos[agent] = dict()
-
-        # if self.end_episode:
-        #     print('end episode')
-        #     self.end_episode = False
-
-        # terminated = not self.step_count % self.episode_length
-
-        # if self.end_episode:
-        # for agent in self.agents:
-        #     terminations[agent] = True if self.end_episode else False
-        #     truncations[agent] = True if self.end_episode else False
-
-
         # print('next step: ', self.step_count, terminated, terminations, truncations)
         # print('--------end step---------')
         return obs, rewards, terminations, truncations, infos
 
-
-
     def reset(self, seed=None, **kwargs):
         print('--------reset---------')
+        self.step_count = 0
         if not hasattr(self, 'max_storage'):
             self.max_storage = -np.inf
             self.min_storage = np.inf
@@ -279,9 +216,6 @@ class Env(pz.ParallelEnv): #
         self.agents_min_actions = {}
         for agent in self.agents:
             infos[agent] = dict()
-
-        # print(obs['b1'].shape, infos)
-        # print(obs, infos)
         print('--------end reset---------')
         return obs, infos
 
@@ -298,7 +232,6 @@ class Env(pz.ParallelEnv): #
             state.expand(self._obs[agent])
 
         return np.array(state)
-
 
     def observation_space(self, agent):
         """
@@ -324,8 +257,8 @@ class Env(pz.ParallelEnv): #
 
         for agent in self.agents:
             agent_obs_names = self.config['participants'][agent]['trader']['observations']
-            lows = [-np.inf]*len(agent_obs_names)
-            highs = [np.inf]*len(agent_obs_names)
+            lows = [-np.inf] * len(agent_obs_names)
+            highs = [np.inf] * len(agent_obs_names)
             if self.one_hot_encode_agent_ids:
                 for bit in range(self.num_one_hot_bits):
                     agent_obs_names.append('agent_id_bit_' + str(bit))
@@ -349,14 +282,14 @@ class Env(pz.ParallelEnv): #
             self.agent_action_translation = {}
 
         for agent in self.agents:
-            #try:
+            # try:
             actions = self.config['participants'][agent]['trader']['actions']
             self.agent_action_array[agent] = [action for action in actions if actions[action]['heuristic'] == 'learned']
 
             min_action = [action['min'] for action in actions.values() if action['heuristic'] == 'learned']
             max_action = [action['max'] for action in actions.values() if action['heuristic'] == 'learned']
             # assert len(min_action) == len(max_action) == len(self.agent_action_array[agent]), 'There was a problem with the action space'
-            num_actions = len(self.agent_action_array[agent]) #FixMe: this is obviously in the wrong spot
+            num_actions = len(self.agent_action_array[agent])  # FixMe: this is obviously in the wrong spot
 
             if self.action_space_type == 'discrete':
                 if len(self.agent_action_array[agent]) == 1:
@@ -366,11 +299,13 @@ class Env(pz.ParallelEnv): #
                     agent_action_space = spaces.MultiDiscrete(entries)
 
                 # this is needed to decode the discrete actions into their continuous counterparts
-                agent_actions_array = [np.linspace(min_action, max_action, self.action_space_entries).tolist() for min_action, max_action in zip(min_action, max_action)]
+                agent_actions_array = [np.linspace(min_action, max_action, self.action_space_entries).tolist() for
+                                       min_action, max_action in zip(min_action, max_action)]
                 self.agent_action_translation[agent] = agent_actions_array
 
             elif self.action_space_type == 'continuous':
-                agent_action_space = spaces.Box(low=np.array(min_action), high=np.array(max_action), shape=(num_actions,))
+                agent_action_space = spaces.Box(low=np.array(min_action), high=np.array(max_action),
+                                                shape=(num_actions,))
 
             else:
                 print('Action space type not recognized:', self.action_space_type)
